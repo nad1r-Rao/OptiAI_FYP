@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "576297972114",
+    "project_id": "optiai-6cd49",
+    "storage_bucket": "optiai-6cd49.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:576297972114:android:cd3c80ba5bf1446469d14b",
+        "android_client_info": {
+          "package_name": "com.example.example_flutter"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBIAS-Pcb-mcqHSNQQFv3MvKGHvAh7aWBw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
