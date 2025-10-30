@@ -6,13 +6,23 @@ import '../providers/chat_provider.dart';
 import '../screens/chat_home_screen.dart';
 import '../screens/history_screen.dart';
 
+/// A collapsible sidebar widget for navigation within the chat interface.
+///
+/// This sidebar displays a list of menu items for navigating between different
+/// screens like Home, History, and Settings. It can be collapsed to a smaller
+/// width to save space, and it includes a button to start a new chat.
 class ChatSidebar extends StatefulWidget {
+  /// Creates a const [ChatSidebar].
   const ChatSidebar({super.key});
 
   @override
   State<ChatSidebar> createState() => _ChatSidebarState();
 }
 
+/// The state for the [ChatSidebar].
+///
+/// Manages the collapsed state of the sidebar and builds the UI based on
+/// whether it is collapsed or expanded.
 class _ChatSidebarState extends State<ChatSidebar> {
   bool isCollapsed = false;
 

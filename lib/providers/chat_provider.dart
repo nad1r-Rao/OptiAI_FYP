@@ -6,23 +6,44 @@ import '../services/ai_services.dart';
 import '../models/chat_message.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 
+/// A provider class for managing the chat interface, state, and interactions.
+///
+/// This class handles the application's core chat functionalities, including:
+/// - Managing a list of chat messages.
+/// - Interacting with the [AiService] to process user queries and get AI responses.
+/// - Handling text-to-speech (TTS) for AI messages.
+/// - Persisting chat history to Firestore.
+/// - Managing the "thinking" state of the AI.
 class ChatProvider with ChangeNotifier {
+  /// The service responsible for handling AI-related tasks.
   final AiService aiService;
   final List<ChatMessage> _messages = [];
   final FlutterTts _tts = FlutterTts();
   bool _isThinking = false;
   bool _hasLoadedHistory = false;
 
+  /// A list of [ChatMessage] objects representing the conversation history.
   List<ChatMessage> get messages => _messages;
+
+  /// A boolean indicating whether the AI is currently processing a request.
   bool get isThinking => _isThinking;
 
+  /// Creates a new instance of [ChatProvider].
+  ///
+  /// Requires an [AiService] to be provided for handling AI interactions.
   ChatProvider({required this.aiService});
 
+  /// Sets the thinking status of the AI and notifies listeners.
+  ///
+  /// [value] is `true` if the AI is processing, `false` otherwise.
   void _setThinking(bool value) {
     _isThinking = value;
     notifyListeners();
   }
 
+  /// Speaks the given text using the text-to-speech engine.
+  ///
+  /// [text] The text to be spoken.
   Future<void> _speak(String text) async {
     await _tts.stop();
     await _tts.setLanguage("en-US");
@@ -31,6 +52,10 @@ class ChatProvider with ChangeNotifier {
     await _tts.speak(text);
   }
 
+  /// Appends a message to the user's chat history in Firestore.
+  ///
+  /// [text] The content of the message.
+  /// [sender] Who sent the message, either 'user' or 'ai'.
   Future<void> _appendToFirestore({
     required String text,
     required String sender, // 'user' | 'ai'
@@ -48,6 +73,10 @@ class ChatProvider with ChangeNotifier {
     });
   }
 
+  /// Adds a message from the AI to the chat and optionally speaks it.
+  ///
+  /// [text] The AI's message content.
+  /// [speak] Whether to speak the message using TTS. Defaults to `true`.
   Future<void> _addAiMessage(String text, {bool speak = true}) async {
     final replyMsg = ChatMessage(isUser: false, message: text);
     _messages.add(replyMsg);
@@ -56,7 +85,10 @@ class ChatProvider with ChangeNotifier {
     await _appendToFirestore(text: text, sender: 'ai');
   }
 
-  /// Load chat history from Firestore
+  /// Loads the chat history for the current user from Firestore.
+  ///
+  /// [show] If `true`, clears the current messages and displays the loaded history.
+  /// [force] If `true`, reloads the history even if it has been loaded before.
   Future<void> loadChatHistory({bool show = true, bool force = false}) async {
     if (_hasLoadedHistory && !force) return;
 
@@ -86,7 +118,14 @@ class ChatProvider with ChangeNotifier {
     _hasLoadedHistory = true;
   }
 
-  /// Send plain text message (routes through the model → text or image)
+  /// Sends a text message from the user and processes it.
+  ///
+  /// This method handles various types of text inputs, including routing
+  /// to specific functions based on keywords (e.g., "take picture") and
+  /// detecting if a query requires real-time information. Otherwise, it
+  /// sends the text to the AI for a general response.
+  ///
+  /// [text] The user's message.
   Future<void> sendText(String text) async {
     if (text.trim().isEmpty) return;
 
@@ -177,7 +216,10 @@ class ChatProvider with ChangeNotifier {
     }
   }
 
-  /// Send image + prompt (kept for your explicit image flow)
+  /// Sends a text prompt along with an image to the AI for analysis.
+  ///
+  /// [prompt] The text prompt to accompany the image.
+  /// [imageBytes] The image data in bytes.
   Future<void> sendTextWithImageToGemini(String prompt, Uint8List imageBytes) async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
@@ -202,7 +244,7 @@ class ChatProvider with ChangeNotifier {
     }
   }
 
-  /// ESP32 image capture (kept for your explicit capture command)
+  /// Captures an image from the ESP32 camera and displays it in the chat.
   Future<void> takePicture() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
@@ -230,7 +272,9 @@ class ChatProvider with ChangeNotifier {
     }
   }
 
-  /// Analyze ESP32 image with prompt (kept for your explicit analyze command)
+  /// Captures an image from the ESP32 and sends it to the AI with a prompt for analysis.
+  ///
+  /// [prompt] The analysis prompt to send with the captured image.
   Future<void> analyzeImageWithPrompt(String prompt) async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
@@ -260,13 +304,15 @@ class ChatProvider with ChangeNotifier {
     }
   }
 
-  /// Clear only local chat (UI)
+  /// Clears the chat messages from the local UI.
+  ///
+  /// This does not affect the chat history stored in Firestore.
   Future<void> clearChat() async {
     _messages.clear();
     notifyListeners();
   }
 
-  /// Clear chat history from Firestore and UI
+  /// Clears the entire chat history from both Firestore and the local UI.
   Future<void> clearChatHistoryFromFirestore() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;

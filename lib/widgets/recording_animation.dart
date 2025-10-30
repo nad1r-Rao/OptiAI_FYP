@@ -1,13 +1,22 @@
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 
+/// A widget that displays a pulsating recording animation.
+///
+/// This widget is typically shown when the application is listening for
+/// voice input. It features a circular shape that expands and shrinks,
+/// creating a visual cue that recording is in progress.
 class RecordingAnimation extends StatefulWidget {
+  /// Creates a const [RecordingAnimation].
   const RecordingAnimation({super.key});
 
   @override
   State<RecordingAnimation> createState() => _RecordingAnimationState();
 }
 
+/// The state for the [RecordingAnimation].
+///
+/// Manages the [AnimationController] that drives the pulsating effect.
 class _RecordingAnimationState extends State<RecordingAnimation>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;

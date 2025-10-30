@@ -1,5 +1,12 @@
 import 'package:flutter/material.dart';
 
+/// A utility function for navigating to a new page with a slide transition.
+///
+/// This function pushes a new route to the navigator using a [PageRouteBuilder]
+/// to create a custom slide animation from right to left.
+///
+/// [context] The [BuildContext] from which to initiate the navigation.
+/// [page] The widget for the new page to be displayed.
 void navigateWithSlide(BuildContext context, Widget page) {
   Navigator.push(
     context,

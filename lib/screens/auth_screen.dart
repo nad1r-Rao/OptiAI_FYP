@@ -8,13 +8,24 @@ import '../theme/app_colors.dart';
 import '../providers/auth_provider.dart';
 import '../widgets/animated_avatar.dart';
 
+/// A screen for user authentication, handling both login and sign-up.
+///
+/// This widget features a futuristic, glassmorphism design with animations.
+/// It includes a form for email and password input, validation, and interaction
+/// with the [AuthProvider] to perform authentication.
 class AuthScreen extends StatefulWidget {
+  /// Creates a const [AuthScreen].
   const AuthScreen({super.key});
 
   @override
   State<AuthScreen> createState() => _AuthScreenState();
 }
 
+/// The state for the [AuthScreen].
+///
+/// Manages the form state, animations, and the logic for toggling between
+/// login and sign-up modes. It also handles the authentication process
+/// and displays feedback to the user (e.g., loading indicators, success/error messages).
 class _AuthScreenState extends State<AuthScreen> with TickerProviderStateMixin {
   bool isLogin = true;
   bool isLoading = false;
@@ -27,7 +38,9 @@ class _AuthScreenState extends State<AuthScreen> with TickerProviderStateMixin {
   late final Animation<Color?> _glowColor;
   late final AnimationController _flipController;
 
+  /// A getter that returns `true` if the user is typing in the email field.
   bool get isTypingEmail => emailController.text.isNotEmpty;
+  /// A getter that returns `true` if the user is typing in the password field.
   bool get isTypingPassword => passwordController.text.isNotEmpty;
 
   @override
@@ -62,6 +75,10 @@ class _AuthScreenState extends State<AuthScreen> with TickerProviderStateMixin {
     super.dispose();
   }
 
+  /// Toggles the form between login and sign-up modes.
+  ///
+  /// This method updates the UI state, clears the input fields, and
+  /// triggers a flip animation to transition between the two forms.
   void toggleForm() {
     setState(() {
       isLogin = !isLogin;
@@ -77,6 +94,13 @@ class _AuthScreenState extends State<AuthScreen> with TickerProviderStateMixin {
     }
   }
 
+  /// Handles the authentication process when the user submits the form.
+  ///
+  /// Validates the form fields, calls the appropriate method on the [AuthProvider],
+  /// and displays feedback based on the result. On success, it navigates
+  /// to the [ChatHomeScreen]. On failure, it shows a snackbar with an error message.
+  ///
+  /// [context] The build context for accessing providers and showing dialogs.
   Future<void> handleAuth(BuildContext context) async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -153,6 +177,11 @@ class _AuthScreenState extends State<AuthScreen> with TickerProviderStateMixin {
     }
   }
 
+  /// Builds the authentication form widget.
+  ///
+  /// This includes the email and password fields, the submit button, and the
+  /// button to toggle between login and sign-up. It also features an animated
+  /// avatar that responds to user input.
   Widget buildAuthForm() {
     return Form(
       key: _formKey,

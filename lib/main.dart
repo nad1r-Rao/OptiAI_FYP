@@ -11,6 +11,10 @@ import 'providers/auth_provider.dart';
 import 'services/ai_services.dart';
 import 'config/env.dart';
 
+/// The main entry point for the OptiAI Glasses application.
+///
+/// This function initializes the Flutter framework, sets up Firebase services,
+/// and runs the main application widget, [OptiAIGlassesApp].
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -29,7 +33,13 @@ void main() async {
   runApp(const OptiAIGlassesApp());
 }
 
+/// The root widget of the OptiAI Glasses application.
+///
+/// This widget sets up the application's theme, providers, and initial screen.
+/// It uses a [MultiProvider] to make all the necessary services and state
+/// management classes available to the rest of the widget tree.
 class OptiAIGlassesApp extends StatelessWidget {
+  /// Creates a const [OptiAIGlassesApp].
   const OptiAIGlassesApp({super.key});
 
   @override

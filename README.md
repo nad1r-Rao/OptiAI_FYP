@@ -81,15 +81,34 @@ cd OptiAI_FYP
 
 ### 3. Configure ESP32
 
-* Flash ESP32 with code in `/esp32_firmware/`
-* Update Wi-Fi credentials in `env.h`
-* Upload using **Arduino IDE** or **PlatformIO**
+* Flash the ESP32 with the firmware located in the `/esp32_firmware/` directory.
+* Update your Wi-Fi credentials in the `env.h` file within the firmware code.
+* Upload the firmware using the **Arduino IDE** or **PlatformIO**.
 
 ### 4. Firebase Setup
 
-* Create a Firebase project
-* Enable **Authentication** and **Firestore Database**
-* Add your Firebase config in `env.dart`
+* Create a new project in the [Firebase Console](https://console.firebase.google.com/).
+* Enable **Authentication** (Email/Password method) and **Firestore Database**.
+* From your Firebase project settings, get your web app's Firebase configuration keys.
+* Add these keys to the `FirebaseOptions` in `lib/main.dart`.
+
+---
+
+## 📂 Project Structure
+
+The repository is structured as follows:
+
+- **`lib/`**: Contains the main Dart source code for the Flutter application.
+  - **`screens/`**: UI widgets for each screen of the app.
+  - **`widgets/`**: Reusable UI components.
+  - **`providers/`**: State management classes using the Provider package.
+  - **`services/`**: Business logic, including AI and hardware communication.
+  - **`models/`**: Data model classes.
+  - **`theme/`**: App-wide theme, colors, and fonts.
+  - **`config/`**: Environment and configuration settings.
+- **`assets/`**: Images, fonts, and other static assets.
+- **`esp32_firmware/`**: (Placeholder) The source code for the ESP32 device.
+- **`test/`**: Unit and widget tests.
 
 ---
 

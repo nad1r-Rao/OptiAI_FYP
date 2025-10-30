@@ -4,12 +4,18 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'retrieval/live_retrieval.dart';
 
+/// Represents a single search result item from a live retrieval.
 class LiveAnswerItem {
+  /// The title of the search result.
   final String title;
+  /// The URL of the search result.
   final String url;
+  /// The domain of the search result.
   final String domain;
+  /// The date the search result was seen or published.
   final DateTime? date;
 
+  /// Creates a [LiveAnswerItem].
   LiveAnswerItem({
     required this.title,
     required this.url,
@@ -18,12 +24,18 @@ class LiveAnswerItem {
   });
 }
 
+/// Represents the complete answer from a live retrieval, including synthesized text and sources.
 class LiveAnswer {
+  /// The original query that was sent.
   final String query;
+  /// A timestamp label for when the information was retrieved.
   final String asOf;           // e.g., "As of 27 Sep 2025, 11:35 PKT"
+  /// The formatted plain text response, suitable for display or text-to-speech.
   final String plainText;      // formatted for UI/TTS
+  /// A list of [LiveAnswerItem]s that were used as sources.
   final List<LiveAnswerItem> items;
 
+  /// Creates a [LiveAnswer].
   LiveAnswer({
     required this.query,
     required this.asOf,
@@ -32,7 +44,9 @@ class LiveAnswer {
   });
 }
 
+/// An extension on nullable [DateTime] to format it as a string.
 extension _Fmt on DateTime? {
+  /// Formats the [DateTime] as `YYYY-MM-DD HH:MM`. Returns an empty string if null.
   String fmt() {
     final d = this;
     if (d == null) return '';
@@ -41,16 +55,28 @@ extension _Fmt on DateTime? {
   }
 }
 
+/// A service class for handling all AI-related functionalities.
+///
+/// This includes communicating with the Gemini API for text and image analysis,
+/// capturing images from an ESP32 camera, classifying user queries, and
+/// performing live information retrieval from the web.
 class AiService {
+  /// Sends a text-only query to the Gemini API.
   Future<String> sendTextToGemini(String query) => _sendTextToGemini(query);
+  /// Sends a text query and an image to the Gemini API.
   Future<String> sendTextWithImageToGemini(String q, Uint8List img) =>
       _sendTextWithImageToGemini(q, img);
+  /// Captures an image from the configured ESP32 camera.
   Future<Uint8List?> captureImageFromESP32() => _captureImageFromESP32();
 
+  /// The API key for the Gemini service.
   final String geminiApiKey;
+  /// The URL for the ESP32 camera's capture endpoint.
   final String esp32Url; // e.g., http://192.168.4.1/capture
+  /// The URL for the custom model API used for query classification.
   final String modelApiUrl; // e.g., https://api.example.com
 
+  /// Creates an instance of [AiService].
   AiService({
     required this.geminiApiKey,
     required this.esp32Url,
@@ -97,7 +123,15 @@ class AiService {
 
   // =========================
 
-  // Model contract: POST {query} -> {prob, trigger, version}
+  /// Classifies a user's query to determine if it requires an image.
+  ///
+  /// This method sends the query to a custom model API. The model returns a
+  /// probability, a boolean trigger indicating if an image is needed, and the
+  /// model version.
+  ///
+  /// [query] The user's text query.
+  ///
+  /// Returns a record containing the probability, trigger status, and version.
   Future<({double prob, bool trigger, String version})> classify(
       String query) async {
     final uri = Uri.parse('$modelApiUrl/predict');
@@ -123,7 +157,16 @@ class AiService {
     return (prob: prob, trigger: trigger, version: version);
   }
 
-  // Unified orchestration
+  /// Processes a user's query by first classifying it and then responding accordingly.
+  ///
+  /// If the query is classified as not needing an image, it's sent to the
+  /// Gemini text model. If it needs an image, this method attempts to capture
+  /// one from the ESP32 and sends both the text and image to Gemini. It includes
+  /// a graceful fallback to a text-only response if the camera is unavailable.
+  ///
+  /// [query] The user's text query.
+  ///
+  /// Returns the AI's response as a string.
   Future<String> processUserQuery(String query) async {
     try {
       final res = await classify(query);
@@ -277,7 +320,15 @@ class AiService {
     }
   }
 
-  // ========= STEP 6 (A): Live retrieval + Gemini synthesis =========
+  /// Performs a live web search and uses Gemini to synthesize an answer from the results.
+  ///
+  /// This method uses the [LiveRetrieval] service to search the web for a given
+  /// query. It then constructs a prompt with the search results and sends it to
+  /// Gemini to generate a concise, synthesized answer.
+  ///
+  /// [query] The user's query for the live search.
+  ///
+  /// Returns a [LiveAnswer] object containing the synthesized response and source links.
   Future<LiveAnswer> getLiveAnswerSynth(String query) async {
     final lr = LiveRetrieval();
     final res = await lr.search(query, topN: 3);
@@ -343,6 +394,15 @@ Now produce ONE concise answer in plain text.
     );
   }
 
+  /// Performs a live web search and returns a formatted list of top sources.
+  ///
+  /// This method is a simpler alternative to [getLiveAnswerSynth]. It performs
+  /// a web search and returns the top results as a formatted string, without
+  /// synthesizing an answer.
+  ///
+  /// [query] The user's query for the live search.
+  ///
+  /// Returns a [LiveAnswer] object with the formatted list of sources.
   static Future<LiveAnswer> getLiveAnswer(String query) async {
     final lr = LiveRetrieval();
     final res = await lr.search(query, topN: 3);

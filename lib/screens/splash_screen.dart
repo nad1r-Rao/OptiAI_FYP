@@ -5,13 +5,24 @@ import '../theme/app_colors.dart';
 // import 'package:animated_text_kit/animated_text_kit.dart'; // <-- Add this import
 
 
+/// A splash screen with animations that is displayed when the app starts.
+///
+/// This widget shows a logo with bouncing and glowing animations, along with
+/// a title that fades and slides in. After a set duration, it automatically
+- navigates to the [AuthScreen].
 class SplashScreen extends StatefulWidget {
+  /// Creates a const [SplashScreen].
   const SplashScreen({super.key});
 
   @override
   State<SplashScreen> createState() => _SplashScreenState();
 }
 
+/// The state for the [SplashScreen].
+///
+/// Manages all the animation controllers and their corresponding animations
+/// for the splash screen's visual effects. It also handles the delayed
+- navigation to the next screen.
 class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMixin {
   late AnimationController _bounceController;
   late AnimationController _glowController;

@@ -7,9 +7,18 @@ import '../providers/theme_provider.dart';
 import '../providers/auth_provider.dart'; 
 import 'auth_screen.dart'; 
 
+/// A screen for managing user settings.
+///
+/// This widget provides options for toggling the theme, viewing application
+/// details in an "About" dialog, and logging out of the application. It
+/// interacts with the [ThemeProvider] and [AuthProvider] to manage these functionalities.
 class SettingsScreen extends StatelessWidget {
+  /// Creates a const [SettingsScreen].
   const SettingsScreen({super.key});
 
+  /// Navigates back to the [ChatHomeScreen] and removes all previous routes.
+  ///
+  /// [context] The build context for navigation.
   void _goToChatHome(BuildContext context) {
     Navigator.pushAndRemoveUntil(
       context,
@@ -18,6 +27,9 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
+  /// Logs the current user out and navigates to the [AuthScreen].
+  ///
+  /// [context] The build context for accessing the [AuthProvider] and navigation.
   void _logout(BuildContext context) async {
     final auth = Provider.of<AuthProvider>(context, listen: false);
     await auth.logout();

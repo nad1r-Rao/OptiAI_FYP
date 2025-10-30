@@ -5,13 +5,23 @@ import '../theme/app_fonts.dart';
 import '../providers/chat_provider.dart';
 import 'chat_home_screen.dart';
 
+/// A screen that displays the user's chat history.
+///
+/// This widget fetches and shows the list of past conversations from the
+/// [ChatProvider]. It also provides an option to clear the entire chat history
+/// from Firestore.
 class HistoryScreen extends StatefulWidget {
+  /// Creates a const [HistoryScreen].
   const HistoryScreen({super.key});
 
   @override
   State<HistoryScreen> createState() => _HistoryScreenState();
 }
 
+/// The state for the [HistoryScreen].
+///
+/// Manages the loading of chat history and the navigation back to the
+/// main chat screen.
 class _HistoryScreenState extends State<HistoryScreen> {
   @override
   void initState() {
@@ -23,6 +33,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
     });
   }
 
+  /// Navigates back to the [ChatHomeScreen] and removes all previous routes.
+  ///
+  /// [context] The build context for navigation.
   void _goToChatHome(BuildContext context) {
     Navigator.pushAndRemoveUntil(
       context,

@@ -4,12 +4,18 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 
 import '/config/env.dart';
 
+/// Represents a single search result from a SERP (Search Engine Results Page) API.
 class SerpResult {
+  /// The title of the search result.
   final String title;
+  /// The URL of the search result.
   final String url;
+  /// A brief snippet or description of the search result.
   final String snippet;
+  /// The publication or last updated date of the result, if available.
   final DateTime? date;
 
+  /// Creates a [SerpResult].
   SerpResult({
     required this.title,
     required this.url,
@@ -17,6 +23,7 @@ class SerpResult {
     this.date,
   });
 
+  /// Extracts and returns the domain name from the URL.
   String get domain {
     try {
       return Uri.parse(url).host.replaceFirst('www.', '');
@@ -29,12 +36,29 @@ class SerpResult {
   String toString() => 'SerpResult(title: $title, url: $url)';
 }
 
+/// A client for interacting with a SERP API to fetch search results.
+///
+/// This class handles the logic for making requests to the search API,
+/// including dynamically choosing between a direct and a proxied route
+/// to avoid issues like CORS on the web. It also parses the JSON response
+/// into a list of [SerpResult] objects.
 class SerpClient {
+  /// Creates a const [SerpClient].
   const SerpClient();
 
-  /// Dynamically chooses the route:
-  /// - Web: proxy (to avoid CORS)
-  /// - Mobile/Desktop: direct -> (fallback to proxy if direct fails and proxy is set)
+  /// Fetches search results for a given query.
+  ///
+  /// This method dynamically chooses the best route for the request. On the web,
+  /// it prefers a proxy to avoid CORS issues. On mobile and desktop, it tries a
+  /// direct request first and falls back to the proxy if the direct request fails.
+  ///
+  /// [query] The search query.
+  /// [maxResults] The maximum number of results to return.
+  /// [hl] The host language for the search.
+  /// [gl] The geographic location for the search.
+  /// [forceProxy] If `true`, forces the use of the proxy.
+  ///
+  /// Returns a list of [SerpResult]s.
   Future<List<SerpResult>> fetch(
     String query, {
     int? maxResults,

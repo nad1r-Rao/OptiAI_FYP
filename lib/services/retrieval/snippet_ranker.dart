@@ -1,13 +1,30 @@
 // import 'dart:math';
 import 'serp_client.dart';
 
+/// A class for ranking SERP (Search Engine Results Page) results.
+///
+/// This ranker uses a blended scoring approach to sort search results based on
+/// several factors, including relevance to the query, the trustworthiness of the
+/// domain, and the freshness of the content.
 class SnippetRanker {
+  /// Creates a const [SnippetRanker].
   const SnippetRanker();
 
-  /// Sort results by a blended score:
-  /// - relevance to query (title/snippet keyword overlap)
-  /// - domain trust (official/high-quality domains slightly preferred)
-  /// - freshness (if date present; boosted for “fresh” queries)
+  /// Ranks a list of [SerpResult]s based on a blended scoring model.
+  ///
+  /// The scoring considers:
+  /// - **Relevance**: Keyword overlap between the query and the result's title/snippet.
+  /// - **Domain Trust**: A preference for official and high-quality domains.
+  /// - **Freshness**: Higher scores for more recent content, especially for queries
+  ///   where freshness is important.
+  ///
+  /// [input] The list of [SerpResult]s to rank.
+  /// [query] The original search query.
+  /// [freshBias] A boolean to indicate if freshness should be weighted more heavily.
+  /// [diversifyDomains] If `true`, the ranked list will prefer to show results
+  ///   from different domains first.
+  ///
+  /// Returns a new list of [SerpResult]s sorted by the calculated rank.
   List<SerpResult> rank(
     List<SerpResult> input, {
     required String query,
@@ -55,7 +72,17 @@ class SnippetRanker {
     return diverse;
   }
 
-  /// Take top-N after ranking.
+  /// Ranks the input list and returns the top N results.
+  ///
+  /// A convenience method that first calls [rank] and then takes the first [n]
+  /// results from the sorted list.
+  ///
+  /// [input] The list of [SerpResult]s to rank.
+  /// [query] The original search query.
+  /// [n] The number of top results to return.
+  /// [freshBias] A boolean to indicate if freshness should be weighted more heavily.
+  ///
+  /// Returns a list containing the top [n] ranked [SerpResult]s.
   List<SerpResult> topN(
     List<SerpResult> input, {
     required String query,

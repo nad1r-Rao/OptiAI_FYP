@@ -1,7 +1,13 @@
 import 'package:flutter/material.dart';
 import '../widgets/recording_animation.dart';
 
+/// A widget that provides a text input field and action buttons for a chat interface.
+///
+/// This input bar includes buttons for camera and microphone access, a text field
+/// for typing messages, and a send button. The microphone button opens a dialog
+/// with a recording animation.
 class ChatInputBar extends StatelessWidget {
+  /// Creates a const [ChatInputBar].
   const ChatInputBar({super.key});
 
   @override

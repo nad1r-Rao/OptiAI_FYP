@@ -11,13 +11,23 @@ import 'dart:typed_data';
 import '../providers/chat_provider.dart';
 import '../providers/speech_provider.dart';
 
+/// The main chat screen of the application.
+///
+/// This widget serves as the central hub for user interaction, displaying the
+/// chat history, providing an input field for text and voice commands, and
+/// integrating with various providers to manage state.
 class ChatHomeScreen extends StatefulWidget {
+  /// Creates a const [ChatHomeScreen].
   const ChatHomeScreen({super.key});
 
   @override
   State<ChatHomeScreen> createState() => _ChatHomeScreenState();
 }
 
+/// The state for the [ChatHomeScreen].
+///
+/// Manages the text input controller, scroll controller for the chat view,
+/// and the logic for sending messages and scrolling to the latest message.
 class _ChatHomeScreenState extends State<ChatHomeScreen>
     with TickerProviderStateMixin {
   final TextEditingController _textController = TextEditingController();
@@ -40,6 +50,7 @@ class _ChatHomeScreenState extends State<ChatHomeScreen>
     super.dispose();
   }
 
+  /// Scrolls the chat view to the bottom to show the latest message.
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollController.hasClients) {
@@ -52,6 +63,7 @@ class _ChatHomeScreenState extends State<ChatHomeScreen>
     });
   }
 
+  /// Sends the text from the input field to the [ChatProvider].
   void _sendText() {
     final text = _textController.text.trim();
     if (text.isNotEmpty) {
@@ -193,10 +205,19 @@ class _ChatHomeScreenState extends State<ChatHomeScreen>
   }
 }
 
+/// A widget that displays a preview of an image in the chat.
+///
+/// This bubble is used to show images sent by the user or captured from
+/// the ESP32 camera. Tapping on the image opens it in a full-screen dialog.
 class PreviewImageBubble extends StatelessWidget {
+  /// The image data to be displayed.
   final Uint8List? imageBytes;
+  /// Creates a const [PreviewImageBubble].
   const PreviewImageBubble({super.key, this.imageBytes});
 
+  /// Opens the image in a full-screen dialog.
+  ///
+  /// [context] The build context for showing the dialog.
   void _openFullScreen(BuildContext context) {
     if (imageBytes == null) return;
     showDialog(
@@ -239,13 +260,21 @@ class PreviewImageBubble extends StatelessWidget {
   }
 }
 
+/// A widget that displays a "typing..." indicator with a fading animation.
+///
+/// This is shown when the AI is processing a request to give the user
+/// visual feedback that the system is working.
 class TypingIndicator extends StatefulWidget {
+  /// Creates a const [TypingIndicator].
   const TypingIndicator({super.key});
 
   @override
   State<TypingIndicator> createState() => _TypingIndicatorState();
 }
 
+/// The state for the [TypingIndicator].
+///
+/// Manages the animation controller for the fading effect.
 class _TypingIndicatorState extends State<TypingIndicator>
     with TickerProviderStateMixin {
   late AnimationController _dotController;

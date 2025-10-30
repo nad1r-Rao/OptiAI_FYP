@@ -1,10 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:lottie/lottie.dart';
 
+/// A widget that displays an animated avatar using a Lottie file.
+///
+/// This avatar can dynamically change its appearance based on the provided
+/// parameters, such as looking left or right and wearing glasses. It uses
+/// [LottieDelegates] to control the opacity of different layers within the
+/// Lottie animation.
 class AnimatedAvatar extends StatelessWidget {
+  /// A boolean that determines if the avatar should be looking to the left.
   final bool isLookingLeft;
+  /// A boolean that determines if the avatar should be wearing glasses.
   final bool isWearingGlasses;
 
+  /// Creates an [AnimatedAvatar].
+  ///
+  /// [isLookingLeft] and [isWearingGlasses] are required.
   const AnimatedAvatar({
     super.key,
     required this.isLookingLeft,

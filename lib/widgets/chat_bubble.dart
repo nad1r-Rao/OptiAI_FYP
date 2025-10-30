@@ -2,16 +2,27 @@ import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_fonts.dart';
 
+/// A widget that displays a single chat message in a styled bubble.
+///
+/// The bubble's appearance, such as its alignment and border color, changes
+/// depending on whether the message is from the user or the AI. It also
+/// features a fade-in animation when it first appears.
 class ChatBubble extends StatefulWidget {
+  /// A boolean that is `true` if the message is from the user.
   final bool isUser;
+  /// The text content of the message.
   final String message;
 
+  /// Creates a [ChatBubble].
   const ChatBubble({super.key, required this.isUser, required this.message});
 
   @override
   State<ChatBubble> createState() => _ChatBubbleState();
 }
 
+/// The state for the [ChatBubble].
+///
+/// Manages the [AnimationController] for the fade-in animation.
 class _ChatBubbleState extends State<ChatBubble> with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _fadeAnimation;
