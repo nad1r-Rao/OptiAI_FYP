@@ -12,16 +12,19 @@ import 'providers/memory_provider.dart'; // Added import
 import 'services/ai_services.dart';
 import 'config/env.dart';
 
+import 'package:flutter_dotenv/flutter_dotenv.dart'; // Added import
+
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'dart:async';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await dotenv.load(fileName: ".env"); // Load environment variables
 
   // Firebase config required for web
   await Firebase.initializeApp(
-    options: const FirebaseOptions(
-      apiKey: "AIzaSyBno3L2C16YTRrXWrNbwVqTZYriYKHLEnw",
+    options: FirebaseOptions(
+      apiKey: dotenv.env['FIREBASE_API_KEY'] ?? '',
       authDomain: "optiai-6cd49.firebaseapp.com",
       projectId: "optiai-6cd49",
       storageBucket: "optiai-6cd49.appspot.com",
@@ -88,7 +91,7 @@ class _OptiAIGlassesAppState extends State<OptiAIGlassesApp> {
         // 1. Gemini & ESP32 & Classification model service
         Provider<AiService>(
           create: (_) => AiService(
-            geminiApiKey: 'AIzaSyDyMvOXEv6_nyV-R6G4as2Mw34TuC0rr2E',
+            geminiApiKey: dotenv.env['GEMINI_API_KEY'] ?? '',
             esp32Url: Env.esp32Url(localEsp32Url: 'http://esp32cam.local/capture'),
             modelApiUrl: 'http://127.0.0.1:8080',
           ),

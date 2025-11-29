@@ -52,6 +52,7 @@ dependencies:
   connectivity_plus: ^7.0.0
   audio_session: ^0.2.2
   google_generative_ai: ^0.4.7
+  flutter_dotenv: ^6.0.0
 
 dev_dependencies:
   flutter_test:
