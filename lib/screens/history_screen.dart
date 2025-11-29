@@ -16,10 +16,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
   @override
   void initState() {
     super.initState();
-
-    // Load chat history into memory and display it
+    // Load list of conversations
     Future.microtask(() {
-      context.read<ChatProvider>().loadChatHistory(show: true, force: true);
+      context.read<ChatProvider>().loadConversations();
     });
   }
 
@@ -34,7 +33,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   @override
   Widget build(BuildContext context) {
     final chatProvider = context.watch<ChatProvider>();
-    final messages = chatProvider.messages;
+    final conversations = chatProvider.conversations;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -49,128 +48,116 @@ class _HistoryScreenState extends State<HistoryScreen> {
           icon: const Icon(Icons.arrow_back, color: Colors.white),
           onPressed: () => _goToChatHome(context),
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.delete_sweep, color: Colors.redAccent),
+            tooltip: 'Clear All History',
+            onPressed: () async {
+              final confirm = await showDialog<bool>(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text('Clear All History?'),
+                  content: const Text(
+                      'This will delete ALL your conversations permanently.'),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      child: const Text('Cancel'),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.pop(context, true),
+                      child: const Text('Delete All',
+                          style: TextStyle(color: Colors.red)),
+                    ),
+                  ],
+                ),
+              );
+
+              if (confirm == true) {
+                await chatProvider.clearAllConversations();
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('All history cleared')),
+                  );
+                }
+              }
+            },
+          ),
+        ],
       ),
       body: Column(
         children: [
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                // ElevatedButton.icon(
-                //   onPressed: () {
-                //     chatProvider.clearChat();
-                //     ScaffoldMessenger.of(context).showSnackBar(
-                //       const SnackBar(content: Text('Started new chat')),
-                //     );
-                //   },
-                //   // icon: const Icon(Icons.chat_bubble_outline),
-                //   label: const Text('New Chat'),
-                //   style: ElevatedButton.styleFrom(
-                //     backgroundColor: AppColors.neonBlue,
-                //     foregroundColor: AppColors.background,
-                //   ),
-                // ),
-                ElevatedButton.icon(
-                  onPressed: () async {
-                    final confirm = await showDialog<bool>(
-                      context: context,
-                      builder: (context) => AlertDialog(
-                        title: const Text('Confirm Delete'),
-                        content: const Text(
-                            'Are you sure you want to delete all chat history? This cannot be undone.'),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(context, false),
-                            child: const Text('Cancel'),
-                          ),
-                          TextButton(
-                            onPressed: () => Navigator.pop(context, true),
-                            child: const Text('Delete',
-                                style: TextStyle(color: Colors.red)),
-                          ),
-                        ],
-                      ),
-                    );
-
-                    if (confirm == true) {
-                      await chatProvider.clearChatHistoryFromFirestore();
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Chat history deleted')),
-                      );
-                    }
-                  },
-                  icon: const Icon(Icons.delete_outline),
-                  label: const Text('Clear History'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.redAccent,
-                    foregroundColor: Colors.white,
-                  ),
-                ),
-              ],
+            child: ElevatedButton.icon(
+              onPressed: () {
+                chatProvider.startNewChat();
+                _goToChatHome(context);
+              },
+              icon: const Icon(Icons.add),
+              label: const Text('New Chat'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.neonBlue,
+                foregroundColor: AppColors.background,
+                minimumSize: const Size(double.infinity, 50),
+              ),
             ),
           ),
           const Divider(color: Colors.white38),
           Expanded(
-            child: messages.isEmpty
+            child: conversations.isEmpty
                 ? Center(
                     child: Text(
-                      "No chat history found.",
+                      "No conversations yet.",
                       style: AppFonts.body.copyWith(color: AppColors.softWhite),
                     ),
                   )
                 : ListView.builder(
                     padding: const EdgeInsets.all(20),
-                    itemCount: messages.length,
+                    itemCount: conversations.length,
                     itemBuilder: (context, index) {
-                      final msg = messages[index];
-                      final isUser = msg.isUser;
-                      final alignment =
-                          isUser ? Alignment.centerRight : Alignment.centerLeft;
-                      final color = isUser
-                          ? AppColors.neonGreen.withOpacity(0.2)
-                          : AppColors.neonBlue.withOpacity(0.2);
-
-                      return Align(
-                        alignment: alignment,
-                        child: Column(
-                          crossAxisAlignment: isUser
-                              ? CrossAxisAlignment.end
-                              : CrossAxisAlignment.start,
-                          children: [
-                            Container(
-                              margin: const EdgeInsets.symmetric(vertical: 8),
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: color,
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: msg.message != null
-                                  ? Text(
-                                      msg.message!,
-                                      style: AppFonts.body.copyWith(
-                                          color: AppColors.softWhite),
-                                    )
-                                  : msg.imageBytes != null
-                                      ? Image.memory(
-                                          msg.imageBytes!,
-                                          width: 200,
-                                        )
-                                      : const SizedBox.shrink(),
+                      final conv = conversations[index];
+                      return Dismissible(
+                        key: Key(conv.id),
+                        direction: DismissDirection.endToStart,
+                        background: Container(
+                          alignment: Alignment.centerRight,
+                          padding: const EdgeInsets.only(right: 20),
+                          color: Colors.red,
+                          child: const Icon(Icons.delete, color: Colors.white),
+                        ),
+                        onDismissed: (direction) {
+                          chatProvider.deleteConversation(conv.id);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Conversation deleted')),
+                          );
+                        },
+                        child: Card(
+                          color: AppColors.cardDark,
+                          margin: const EdgeInsets.only(bottom: 12),
+                          child: ListTile(
+                            title: Text(
+                              conv.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppFonts.body.copyWith(
+                                  color: Colors.white, fontWeight: FontWeight.bold),
                             ),
-                            Text(
-                              // Just shows timestamp of current time for now
-                              // Replace with saved timestamp field if added to Firestore
-                              DateTime.now()
-                                  .toLocal()
-                                  .toString()
-                                  .substring(0, 16),
-                              style: TextStyle(
-                                color: Colors.white54,
-                                fontSize: 10,
-                              ),
+                            subtitle: Text(
+                              conv.lastMessage,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppFonts.body.copyWith(fontSize: 12, color: Colors.white70),
                             ),
-                          ],
+                            trailing: Text(
+                              _formatDate(conv.timestamp),
+                              style: AppFonts.body.copyWith(fontSize: 12, color: Colors.white54),
+                            ),
+                            onTap: () async {
+                              await chatProvider.loadChat(conv.id);
+                              if (mounted) _goToChatHome(context);
+                            },
+                          ),
                         ),
                       );
                     },
@@ -179,5 +166,13 @@ class _HistoryScreenState extends State<HistoryScreen> {
         ],
       ),
     );
+  }
+
+  String _formatDate(DateTime d) {
+    final now = DateTime.now();
+    if (d.year == now.year && d.month == now.month && d.day == now.day) {
+      return "${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}";
+    }
+    return "${d.day}/${d.month}";
   }
 }

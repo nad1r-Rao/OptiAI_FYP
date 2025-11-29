@@ -1,22 +1,45 @@
 import 'dart:typed_data';
-import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import '../services/ai_services.dart';
-import '../models/chat_message.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
+import 'package:google_generative_ai/google_generative_ai.dart'; // Added import
+import '../models/chat_message.dart';
+import '../models/conversation.dart';
+import '../services/ai_services.dart';
+import 'memory_provider.dart';
 
-class ChatProvider with ChangeNotifier {
+class ChatProvider extends ChangeNotifier {
   final AiService aiService;
+  final MemoryProvider memoryProvider;
+  final FlutterTts _flutterTts = FlutterTts();
+
   final List<ChatMessage> _messages = [];
-  final FlutterTts _tts = FlutterTts();
   bool _isThinking = false;
   bool _hasLoadedHistory = false;
 
   List<ChatMessage> get messages => _messages;
   bool get isThinking => _isThinking;
 
-  ChatProvider({required this.aiService});
+  final List<Conversation> _conversations = [];
+  String? _currentConversationId;
+
+  List<Conversation> get conversations => _conversations;
+  String? get currentConversationId => _currentConversationId;
+
+  ChatProvider({
+    required this.aiService,
+    required this.memoryProvider,
+  }) {
+    _initTts();
+    memoryProvider.loadMemories();
+  }
+
+  void _initTts() async {
+    await _flutterTts.setLanguage("en-US");
+    await _flutterTts.setPitch(1.0);
+    await _flutterTts.setSpeechRate(0.5);
+  }
 
   void _setThinking(bool value) {
     _isThinking = value;
@@ -24,11 +47,9 @@ class ChatProvider with ChangeNotifier {
   }
 
   Future<void> _speak(String text) async {
-    await _tts.stop();
-    await _tts.setLanguage("en-US");
-    await _tts.setPitch(1.0);
-    await _tts.setSpeechRate(0.9);
-    await _tts.speak(text);
+    if (text.isNotEmpty) {
+      await _flutterTts.speak(text);
+    }
   }
 
   Future<void> _appendToFirestore({
@@ -37,10 +58,39 @@ class ChatProvider with ChangeNotifier {
   }) async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
+
+    // 1. Create conversation if not exists
+    if (_currentConversationId == null) {
+      final ref = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .collection('conversations')
+          .add({
+        'title': text, // Use first message as title initially
+        'lastMessage': text,
+        'timestamp': FieldValue.serverTimestamp(),
+      });
+      _currentConversationId = ref.id;
+    } else {
+      // Update existing conversation preview
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .collection('conversations')
+          .doc(_currentConversationId)
+          .update({
+        'lastMessage': text,
+        'timestamp': FieldValue.serverTimestamp(),
+      });
+    }
+
+    // 2. Add message to subcollection
     await FirebaseFirestore.instance
         .collection('users')
         .doc(uid)
-        .collection('chatHistory')
+        .collection('conversations')
+        .doc(_currentConversationId)
+        .collection('messages')
         .add({
       'text': text,
       'sender': sender,
@@ -56,42 +106,134 @@ class ChatProvider with ChangeNotifier {
     await _appendToFirestore(text: text, sender: 'ai');
   }
 
-  /// Load chat history from Firestore
-  Future<void> loadChatHistory({bool show = true, bool force = false}) async {
-    if (_hasLoadedHistory && !force) return;
+  // Public method to add system/status messages
+  void addMessage({required String message, required bool isUser}) {
+    _messages.add(ChatMessage(isUser: isUser, message: message));
+    notifyListeners();
+    if (!isUser) {
+       _speak(message);
+    }
+  }
 
+  // Start a fresh session
+  void startNewChat() {
+    _messages.clear();
+    _currentConversationId = null;
+    notifyListeners();
+  }
+
+  // Alias for clearChat to satisfy existing calls
+  void clearChat() {
+    startNewChat();
+  }
+
+  // Load list of conversations
+  Future<void> loadConversations() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
 
     final snapshot = await FirebaseFirestore.instance
         .collection('users')
         .doc(uid)
-        .collection('chatHistory')
+        .collection('conversations')
+        .orderBy('timestamp', descending: true)
+        .get();
+
+    _conversations.clear();
+    for (var doc in snapshot.docs) {
+      _conversations.add(Conversation.fromMap(doc.id, doc.data()));
+    }
+    notifyListeners();
+  }
+
+  // Load a specific chat session
+  Future<void> loadChat(String conversationId) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+
+    _currentConversationId = conversationId;
+    _messages.clear(); // Clear current view first
+    notifyListeners();
+
+    final snapshot = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .collection('conversations')
+        .doc(conversationId)
+        .collection('messages')
         .orderBy('timestamp')
         .get();
 
-    if (show) {
+    for (var doc in snapshot.docs) {
+      final data = doc.data();
+      _messages.add(ChatMessage(
+        message: data['text'],
+        isUser: data['sender'] == 'user',
+        imageBytes: null, // Images not stored in FS yet for simplicity
+      ));
+    }
+    notifyListeners();
+  }
+
+  Future<void> deleteConversation(String conversationId) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .collection('conversations')
+        .doc(conversationId)
+        .delete();
+
+    _conversations.removeWhere((c) => c.id == conversationId);
+    if (_currentConversationId == conversationId) {
+      _currentConversationId = null;
       _messages.clear();
-      for (var doc in snapshot.docs) {
-        final data = doc.data();
-        _messages.add(ChatMessage(
-          message: data['text'],
-          isUser: data['sender'] == 'user',
-          imageBytes: null,
-        ));
-      }
-      notifyListeners();
+    }
+    notifyListeners();
+  }
+
+  Future<void> clearAllConversations() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+
+    final snapshot = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .collection('conversations')
+        .get();
+
+    for (var doc in snapshot.docs) {
+      await doc.reference.delete();
     }
 
-    _hasLoadedHistory = true;
+    _conversations.clear();
+    _messages.clear();
+    _currentConversationId = null;
+    notifyListeners();
+  }
+
+  /// Load chat history from Firestore (Legacy method kept for compatibility if needed, but updated to use loadConversations logic or just ignored)
+  Future<void> loadChatHistory({bool show = true, bool force = false}) async {
+    // For now, we'll just load conversations instead of the old flat history
+    await loadConversations();
+  }
+  
+  Future<void> clearChatHistoryFromFirestore() async {
+      await clearAllConversations();
   }
 
   /// Send plain text message (routes through the model → text or image)
   Future<void> sendText(String text) async {
+
     if (text.trim().isEmpty) return;
 
     final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return;
+    if (uid == null) {
+
+      return;
+    }
 
     // Show user message
     final userMsg = ChatMessage(isUser: true, message: text);
@@ -99,190 +241,53 @@ class ChatProvider with ChangeNotifier {
     notifyListeners();
     await _appendToFirestore(text: text, sender: 'user');
 
-    final lower = text.toLowerCase();
-
-    // Manual overrides (keep your shortcuts)
-    if (lower.contains("take picture")) {
-      await takePicture();
-      return;
-    }
-    if (lower.contains("identify") ||
-        lower.contains("describe") ||
-        lower.contains("analyze")) {
-      await analyzeImageWithPrompt(text);
-      return;
-    }
-
-    // ---------- Realtime detector ----------
-    final looksRealtime = [
-      'today','now','latest','live','weather','forecast','score','result',
-      'rate','price','usd','pkr','news','update','schedule','fixture'
-    ].any(lower.contains);
-
-    if (looksRealtime) {
-      _setThinking(true);
-      try {
-        // 1) Get synthesized answer (SERP → rank → Gemini one-liner)
-        final answer = await aiService.getLiveAnswerSynth(text);
-
-        // 2) Show full formatted text (timestamp + one-line synthesis + sources) in UI,
-        //    but DON'T speak this big block to avoid long TTS.
-        await _addAiMessage(answer.plainText, speak: false);
-
-        // 3) Speak only the concise synthesized line (after the "As of ..." line)
-        final lines = answer.plainText.split('\n');
-        final idx = lines.indexWhere((l) => l.startsWith('As of '));
-        String synthForSpeech;
-        if (idx != -1 && idx + 1 < lines.length) {
-          // next non-empty line after As of
-          synthForSpeech = (lines
-                  .skip(idx + 1)
-                  .firstWhere((l) => l.trim().isNotEmpty, orElse: () => ''))
-              .trim();
-        } else {
-          synthForSpeech = lines
-              .firstWhere((l) => l.trim().isNotEmpty, orElse: () => '')
-              .trim();
-        }
-        if (synthForSpeech.isNotEmpty) {
-          await _speak('Here is the latest. $synthForSpeech');
-        }
-
-        // 4) (Optional) Also add a separate Sources-only message with tappable links
-        // if (answer.items.isNotEmpty) {
-        //   final buf = StringBuffer('Sources:\n');
-        //   for (final it in answer.items) {
-        //     buf.writeln('• ${it.title} (${it.domain})\n${it.url}');
-        //   }
-        //   await _addAiMessage(buf.toString(), speak: false);
-        // }
-      } catch (e) {
-        await _addAiMessage("Couldn't fetch live info ($e).", speak: false);
-      } finally {
-        _setThinking(false);
-      }
-      return; // don't fall through to Gemini path
-    }
-    // ---------- End realtime block ----------
-
-    // Model-driven flow (your existing Gemini path)
+    // Model-driven flow
     _setThinking(true);
     try {
-      final reply = await aiService.processUserQuery(text);
+      // 1. Local Model Classification (The "First Pass")
+      String? localPrediction;
+      try {
+        localPrediction = await aiService.classify(text); 
+      } catch (e) {
+        // Ignore local model errors
+      }
+
+      // 2. Gemini Router (The "Brain") - with local context
+      final queryType = await aiService.routeQuery(text, localContext: localPrediction);
+
+      if (queryType == QueryType.realtime) {
+        // --- REALTIME FLOW ---
+        try {
+          final answer = await aiService.getLiveAnswerSynth(text);
+          await _addAiMessage(answer.plainText, speak: false);
+
+          // Speak only the concise synthesized line
+          final lines = answer.plainText.split('\n');
+          final idx = lines.indexWhere((l) => l.startsWith('As of '));
+          String synthForSpeech;
+          if (idx != -1 && idx + 1 < lines.length) {
+            synthForSpeech = (lines
+                    .skip(idx + 1)
+                    .firstWhere((l) => l.trim().isNotEmpty, orElse: () => ''))
+                .trim();
+          } else {
+            synthForSpeech = lines
+                .firstWhere((l) => l.trim().isNotEmpty, orElse: () => '')
+                .trim();
+  Future<void> sendTextWithImageToGemini(String text, Uint8List imageBytes) async {
+    final userMsg = ChatMessage(isUser: true, message: text, imageBytes: imageBytes);
+    _messages.add(userMsg);
+    notifyListeners();
+    await _appendToFirestore(text: text, sender: 'user'); // Note: not saving image to FS yet
+
+    _setThinking(true);
+    try {
+      final reply = await aiService.sendTextWithImageToGemini(text, imageBytes);
       await _addAiMessage(reply);
     } catch (e) {
       await _addAiMessage('Error: $e', speak: false);
     } finally {
       _setThinking(false);
     }
-  }
-
-  /// Send image + prompt (kept for your explicit image flow)
-  Future<void> sendTextWithImageToGemini(String prompt, Uint8List imageBytes) async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return;
-
-    _setThinking(true);
-
-    // show prompt + image in UI
-    final promptMsg = ChatMessage(isUser: true, message: prompt);
-    final imageMsg = ChatMessage(isUser: false, imageBytes: imageBytes);
-    _messages.addAll([promptMsg, imageMsg]);
-    notifyListeners();
-
-    await _appendToFirestore(text: prompt, sender: 'user');
-
-    try {
-      final result = await aiService.sendTextWithImageToGemini(prompt, imageBytes);
-      await _addAiMessage(result);
-    } catch (e) {
-      await _addAiMessage('Error: $e', speak: false);
-    } finally {
-      _setThinking(false);
-    }
-  }
-
-  /// ESP32 image capture (kept for your explicit capture command)
-  Future<void> takePicture() async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return;
-
-    final capturingMsg = ChatMessage(isUser: false, message: 'Capturing image...');
-    _messages.add(capturingMsg);
-    notifyListeners();
-    await _speak(capturingMsg.message!);
-
-    _setThinking(true);
-
-    try {
-      final image = await aiService.captureImageFromESP32();
-      if (image != null) {
-        final imageMsg = ChatMessage(isUser: false, imageBytes: image);
-        _messages.add(imageMsg);
-      } else {
-        await _addAiMessage('Failed to capture image from ESP32.', speak: true);
-      }
-    } catch (e) {
-      await _addAiMessage('Error: $e', speak: false);
-    } finally {
-      _setThinking(false);
-      notifyListeners();
-    }
-  }
-
-  /// Analyze ESP32 image with prompt (kept for your explicit analyze command)
-  Future<void> analyzeImageWithPrompt(String prompt) async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return;
-
-    final analyzingMsg = ChatMessage(isUser: false, message: 'Analyzing image...');
-    _messages.add(analyzingMsg);
-    notifyListeners();
-    await _speak(analyzingMsg.message!);
-
-    _setThinking(true);
-
-    try {
-      final image = await aiService.captureImageFromESP32();
-      if (image != null) {
-        final result = await aiService.sendTextWithImageToGemini(prompt, image);
-        final imageMsg = ChatMessage(isUser: false, imageBytes: image);
-        _messages.add(imageMsg);
-        await _addAiMessage(result);
-      } else {
-        await _addAiMessage('Failed to capture image for analysis.', speak: true);
-      }
-    } catch (e) {
-      await _addAiMessage('Error: $e', speak: false);
-    } finally {
-      _setThinking(false);
-      notifyListeners();
-    }
-  }
-
-  /// Clear only local chat (UI)
-  Future<void> clearChat() async {
-    _messages.clear();
-    notifyListeners();
-  }
-
-  /// Clear chat history from Firestore and UI
-  Future<void> clearChatHistoryFromFirestore() async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return;
-
-    final collection = FirebaseFirestore.instance
-        .collection('users')
-        .doc(uid)
-        .collection('chatHistory');
-
-    final snapshot = await collection.get();
-    for (var doc in snapshot.docs) {
-      await doc.reference.delete();
-    }
-
-    _messages.clear();
-    _hasLoadedHistory = false;
-    notifyListeners();
   }
 }

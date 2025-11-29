@@ -8,8 +8,12 @@ import 'providers/speech_provider.dart';
 import 'providers/navigation_provider.dart';
 import 'providers/theme_provider.dart';
 import 'providers/auth_provider.dart';
+import 'providers/memory_provider.dart'; // Added import
 import 'services/ai_services.dart';
 import 'config/env.dart';
+
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'dart:async';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -29,8 +33,53 @@ void main() async {
   runApp(const OptiAIGlassesApp());
 }
 
-class OptiAIGlassesApp extends StatelessWidget {
+class OptiAIGlassesApp extends StatefulWidget {
   const OptiAIGlassesApp({super.key});
+
+  @override
+  State<OptiAIGlassesApp> createState() => _OptiAIGlassesAppState();
+}
+
+class _OptiAIGlassesAppState extends State<OptiAIGlassesApp> {
+  final GlobalKey<ScaffoldMessengerState> _scaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
+  late StreamSubscription<List<ConnectivityResult>> _connectivitySubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((List<ConnectivityResult> results) {
+      // If any of the results is not none, we have connection (simplification)
+      // Or check if results.contains(ConnectivityResult.none)
+      
+      bool hasConnection = !results.contains(ConnectivityResult.none);
+      
+      if (!hasConnection) {
+        _scaffoldMessengerKey.currentState?.showSnackBar(
+          const SnackBar(
+            content: Text("No Internet Connection"),
+            backgroundColor: Colors.red,
+            duration: Duration(days: 1), // Persistent until connected
+          ),
+        );
+      } else {
+        _scaffoldMessengerKey.currentState?.hideCurrentSnackBar();
+        // Optional: Show "Back Online" briefly
+        // _scaffoldMessengerKey.currentState?.showSnackBar(
+        //   const SnackBar(
+        //     content: Text("Back Online"),
+        //     backgroundColor: Colors.green,
+        //     duration: Duration(seconds: 2),
+        //   ),
+        // );
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _connectivitySubscription.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -40,19 +89,25 @@ class OptiAIGlassesApp extends StatelessWidget {
         Provider<AiService>(
           create: (_) => AiService(
             geminiApiKey: 'AIzaSyDyMvOXEv6_nyV-R6G4as2Mw34TuC0rr2E',
-            esp32Url: Env.esp32Url(localEsp32Url: 'http://192.168.192.78/capture'),
+            esp32Url: Env.esp32Url(localEsp32Url: 'http://esp32cam.local/capture'),
             modelApiUrl: 'http://127.0.0.1:8080',
           ),
         ),
 
-        // 2. Chat Provider
-        ChangeNotifierProvider(
+        // 2. Memory Provider
+        ChangeNotifierProvider(create: (_) => MemoryProvider()),
+
+        // 3. Chat Provider (depends on AiService and MemoryProvider)
+        ChangeNotifierProxyProvider2<AiService, MemoryProvider, ChatProvider>(
           create: (context) => ChatProvider(
             aiService: context.read<AiService>(),
+            memoryProvider: context.read<MemoryProvider>(),
           ),
+          update: (context, aiService, memoryProvider, previous) =>
+              previous ?? ChatProvider(aiService: aiService, memoryProvider: memoryProvider),
         ),
 
-        // 3. Voice, Navigation, Theme, Auth
+        // 4. Other Providers
         ChangeNotifierProvider(create: (_) => SpeechProvider()),
         ChangeNotifierProvider(create: (_) => NavigationProvider()),
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
@@ -61,6 +116,7 @@ class OptiAIGlassesApp extends StatelessWidget {
       child: Consumer<ThemeProvider>(
         builder: (context, themeProvider, _) {
           return MaterialApp(
+            scaffoldMessengerKey: _scaffoldMessengerKey,
             title: 'OptiAI Glasses',
             debugShowCheckedModeBanner: false,
             themeMode: themeProvider.themeMode,

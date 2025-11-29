@@ -1,8 +1,10 @@
-// 📁 lib/services/ai_services.dart
 import 'dart:convert';
 import 'dart:typed_data';
+import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:google_generative_ai/google_generative_ai.dart';
 import 'retrieval/live_retrieval.dart';
+import 'retrieval/serp_client.dart'; 
 
 class LiveAnswerItem {
   final String title;
@@ -20,15 +22,17 @@ class LiveAnswerItem {
 
 class LiveAnswer {
   final String query;
-  final String asOf;           // e.g., "As of 27 Sep 2025, 11:35 PKT"
-  final String plainText;      // formatted for UI/TTS
+  final String asOf;
+  final String plainText;
   final List<LiveAnswerItem> items;
+  final List<SerpResult> searchContext; // Changed SearchResult to SerpResult
 
   LiveAnswer({
     required this.query,
     required this.asOf,
     required this.plainText,
     required this.items,
+    this.searchContext = const [],
   });
 }
 
@@ -41,243 +45,172 @@ extension _Fmt on DateTime? {
   }
 }
 
-class AiService {
-  Future<String> sendTextToGemini(String query) => _sendTextToGemini(query);
-  Future<String> sendTextWithImageToGemini(String q, Uint8List img) =>
-      _sendTextWithImageToGemini(q, img);
-  Future<Uint8List?> captureImageFromESP32() => _captureImageFromESP32();
+enum QueryType {
+  image,
+  realtime,
+  text,
+  memory_store,
+}
 
+class AiService {
   final String geminiApiKey;
-  final String esp32Url; // e.g., http://192.168.4.1/capture
-  final String modelApiUrl; // e.g., https://api.example.com
+  final String esp32Url;
+  final String modelApiUrl;
+
+  late final GenerativeModel _model;
+  late final GenerativeModel _visionModel;
+  late final GenerativeModel _routerModel;
 
   AiService({
     required this.geminiApiKey,
     required this.esp32Url,
     required this.modelApiUrl,
-    
-  });
-
-  // ---- Types ----
-  static const _timeout = Duration(seconds: 10);
-
-  // =========================
-  // 1) GEMINI HELPERS (updated)
-  // =========================
-
-  // Try both API versions (some projects/keys are provisioned on v1, others on v1beta)
-  static const List<String> _geminiBases = [
-    'https://generativelanguage.googleapis.com/v1/models',
-    'https://generativelanguage.googleapis.com/v1beta/models',
-  ];
-
-  // Try these model IDs in order; different projects expose different aliases
-  static const List<String> _textModels = [
-    // v1 (available for your key)
-  'gemini-2.5-flash',
-  'gemini-2.5-pro',
-  'gemini-2.0-flash',
-  'gemini-2.0-flash-001',
-  'gemini-2.5-flash-lite',
-
-  // v1beta fallbacks (also visible for your key)
-  'gemini-2.5-flash-preview-05-20',
-  'gemini-2.5-flash-lite-preview-06-17',
-  'gemini-2.5-pro-preview-06-05',
-  'gemini-2.5-pro-preview-05-06',
-  'gemini-2.5-pro-preview-03-25',
-
-  ];
-
-  static Uri _geminiUri(String base, String model) =>
-      Uri.parse('$base/$model:generateContent');
-
-  static bool _isNotFound(http.Response r) =>
-      r.statusCode == 404 && r.body.contains('NOT_FOUND');
-
-  // =========================
-
-  // Model contract: POST {query} -> {prob, trigger, version}
-  Future<({double prob, bool trigger, String version})> classify(
-      String query) async {
-    final uri = Uri.parse('$modelApiUrl/predict');
-    final resp = await http
-        .post(
-          uri,
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode({'query': query}),
-        )
-        .timeout(_timeout);
-
-    if (resp.statusCode != 200) {
-      throw Exception('Model API ${resp.statusCode}: ${resp.body}');
-    }
-    final m = jsonDecode(resp.body) as Map<String, dynamic>;
-    final prob = (m['prob'] as num?)?.toDouble();
-    final trigger = m['trigger'] as bool?;
-    final version = (m['version'] as String?) ?? 'unknown';
-
-    if (prob == null || trigger == null) {
-      throw Exception('Model API: missing fields in response');
-    }
-    return (prob: prob, trigger: trigger, version: version);
+  }) {
+    _model = GenerativeModel(
+      model: 'gemini-2.0-flash', // User requested newer model
+      apiKey: geminiApiKey,
+    );
+    _visionModel = GenerativeModel(
+      model: 'gemini-2.0-flash',
+      apiKey: geminiApiKey,
+    );
+    _routerModel = GenerativeModel(
+      model: 'gemini-2.0-flash',
+      apiKey: geminiApiKey,
+      generationConfig: GenerationConfig(
+        temperature: 0.0,
+        maxOutputTokens: 10,
+      ),
+    );
   }
 
-  // Unified orchestration
-  Future<String> processUserQuery(String query) async {
+  // --- ROUTER ---
+  Future<QueryType> routeQuery(String query, {String? localContext}) async {
+    String prompt = """
+You are a router for smart glasses. Classify the user's query into one of these types:
+1. IMAGE: The user wants to capture/analyze an image (e.g., "What is this?", "Read this text", "Look at the view").
+2. REALTIME: The user asks for live/changing info (e.g., "Weather?", "Stock price?", "Who won the game?", "Current time").
+3. MEMORY_STORE: The user explicitly asks you to remember a fact (e.g., "Remember that my keys are in the bowl", "Note that I like sushi").
+4. TEXT: General chat, knowledge, or logic (e.g., "Tell me a joke", "Summarize this", "Who is Einstein?").
+
+Query: "$query"
+""";
+
+    if (localContext != null && localContext.isNotEmpty) {
+      prompt += "\nLocal Model Prediction: $localContext\n(Use this prediction to help you decide, but trust your own judgment if it seems wrong.)\n";
+    }
+
+    prompt += '\nReply ONLY with one word: IMAGE, REALTIME, MEMORY_STORE, or TEXT.';
+
+    for (int attempt = 0; attempt < 3; attempt++) {
+      try {
+        final content = [Content.text(prompt)];
+        final response = await _routerModel.generateContent(content);
+        final text = response.text?.trim().toUpperCase() ?? 'TEXT';
+
+        if (text.contains('IMAGE')) return QueryType.image;
+        if (text.contains('REALTIME')) return QueryType.realtime;
+        if (text.contains('MEMORY')) return QueryType.memory_store;
+        
+        return QueryType.text;
+      } catch (e) {
+        return QueryType.text; // Fallback on non-retriable error
+      }
+    }
+    return QueryType.text; // Fallback after retries
+  }
+
+  // --- LOCAL MODEL CLASSIFICATION ---
+  Future<String?> classify(String text) async {
     try {
-      final res = await classify(query);
-      final needsImage = res.trigger;
+      final response = await http.post(
+        Uri.parse('$modelApiUrl/predict'), 
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'query': text}), // Changed 'text' to 'query'
+      ).timeout(const Duration(seconds: 2));
 
-      if (!needsImage) {
-        return await _sendTextToGemini(query);
+      if (response.statusCode == 200) {
+        // Return the raw body so the LLM can see prob/trigger/ver
+        return response.body;
       }
-
-      final img = await _captureImageFromESP32WithRetry();
-      if (img == null) {
-        // Graceful fallback
-        return 'Camera not available right now. I can still answer as text:\n\n'
-            '${await _sendTextToGemini(query)}';
-      }
-      return await _sendTextWithImageToGemini(query, img);
     } catch (e) {
-      return 'Error: $e';
-    }
-  }
-
-  // ==========================================
-  // 2) _sendTextToGemini (REPLACED with retries)
-  // ==========================================
-  Future<String> _sendTextToGemini(String query) async {
-    final body = jsonEncode({
-      'contents': [
-        {
-          'parts': [
-            {'text': query}
-          ]
-        }
-      ],
-      'generationConfig': {'temperature': 0.4, 'topK': 32, 'topP': 0.95}
-    });
-
-    http.Response? last;
-    for (final base in _geminiBases) {
-      for (final model in _textModels) {
-        final resp = await http
-            .post(
-              _geminiUri(base, model),
-              headers: {
-                'Content-Type': 'application/json',
-                'x-goog-api-key': geminiApiKey,
-              },
-              body: body,
-            )
-            .timeout(_timeout);
-        last = resp;
-
-        if (resp.statusCode == 200) {
-          final m = jsonDecode(resp.body) as Map<String, dynamic>;
-          final candidates = (m['candidates'] as List?) ?? const [];
-          if (candidates.isEmpty) return 'No response from AI';
-          final text = (((candidates[0] as Map)['content'] as Map)['parts']
-              as List?)?.first?['text'] as String?;
-          return text ?? 'No response from AI';
-        }
-
-        if (_isNotFound(resp)) {
-          // Try next model/base
-          continue;
-        }
-
-        // Other errors (401/403/429/500…) – surface immediately
-        throw Exception('Gemini text ${resp.statusCode}: ${resp.body}');
-      }
-    }
-    throw Exception(
-        'Gemini text 404: no compatible model found. Last: ${last?.body}');
-  }
-
-  // ======================================================
-  // 3) _sendTextWithImageToGemini (REPLACED with retries)
-  // ======================================================
-  Future<String> _sendTextWithImageToGemini(
-      String query, Uint8List imageBytes) async {
-    final body = jsonEncode({
-      'contents': [
-        {
-          'parts': [
-            {'text': query},
-            {
-              'inlineData': {
-                'mimeType': 'image/jpeg',
-                'data': base64Encode(imageBytes),
-              }
-            }
-          ]
-        }
-      ],
-      'generationConfig': {'temperature': 0.3, 'topK': 32, 'topP': 0.95}
-    });
-
-    http.Response? last;
-    for (final base in _geminiBases) {
-      for (final model in _textModels) {
-        final resp = await http
-            .post(
-              _geminiUri(base, model), // same multimodal method
-              headers: {
-                'Content-Type': 'application/json',
-                'x-goog-api-key': geminiApiKey,
-              },
-              body: body,
-            )
-            .timeout(_timeout);
-        last = resp;
-
-        if (resp.statusCode == 200) {
-          final m = jsonDecode(resp.body) as Map<String, dynamic>;
-          final candidates = (m['candidates'] as List?) ?? const [];
-          if (candidates.isEmpty) return 'No response from AI';
-          final text = (((candidates[0] as Map)['content'] as Map)['parts']
-              as List?)?.first?['text'] as String?;
-          return text ?? 'No response from AI';
-        }
-
-        if (_isNotFound(resp)) {
-          continue; // try next model/base
-        }
-
-        throw Exception('Gemini image ${resp.statusCode}: ${resp.body}');
-      }
-    }
-    throw Exception(
-        'Gemini image 404: no compatible model found. Last: ${last?.body}');
-  }
-
-  // ---------- ESP32 capture with retry ----------
-  Future<Uint8List?> _captureImageFromESP32WithRetry({int attempts = 2}) async {
-    for (int i = 0; i < attempts; i++) {
-      final img = await _captureImageFromESP32();
-      if (img != null && img.isNotEmpty) return img;
-      await Future.delayed(const Duration(milliseconds: 300));
+      // Ignore local model errors
     }
     return null;
   }
 
-  Future<Uint8List?> _captureImageFromESP32() async {
-    final url = '$esp32Url?t=${DateTime.now().millisecondsSinceEpoch}';
-    try {
-      final resp = await http.get(Uri.parse(url)).timeout(_timeout);
-      if (resp.statusCode == 200) {
-        return resp.bodyBytes;
+  // --- TEXT ---
+  Future<String> sendTextToGemini(String text, {
+    List<String> memories = const [],
+    List<Content> chatHistory = const [],
+  }) async {
+    for (int attempt = 0; attempt < 3; attempt++) {
+      try {
+        String systemContext = "You are OptiAI, a helpful assistant inside smart glasses. "
+            "Keep your answers VERY concise (1-2 sentences max). "
+            "Do NOT use markdown, asterisks, or special formatting. Just plain text. "
+            "Be helpful, friendly, and direct.\n\n";
+            
+        if (memories.isNotEmpty) {
+          systemContext += "You have the following memories about the user:\n";
+          for (var m in memories) {
+            systemContext += "- $m\n";
+          }
+          systemContext += "Use these memories to personalize your answer if relevant.\n\n";
+        }
+
+        // Start a chat session with history
+        final chat = _model.startChat(history: [
+          Content.text(systemContext), // System instruction as first message
+          ...chatHistory,
+        ]);
+
+        final response = await chat.sendMessage(Content.text(text));
+        return "Error connecting to Gemini: $e";
       }
-      return null;
-    } catch (_) {
-      return null;
+    }
+    return "I'm overloaded right now. Please try again later.";
+  }
+
+  // --- VISION ---
+  Future<String> sendTextWithImageToGemini(String text, Uint8List imageBytes) async {
+    try {
+      final content = [
+        Content.multi([
+          TextPart(text),
+          DataPart('image/jpeg', imageBytes),
+        ])
+      ];
+      final response = await _visionModel.generateContent(content);
+      return response.text ?? "I couldn't analyze the image.";
+    } catch (e) {
+      return "Error analyzing image: $e";
     }
   }
 
-  // ========= STEP 6 (A): Live retrieval + Gemini synthesis =========
+  // --- ESP32 ---
+  Future<Uint8List?> captureImageFromESP32() async {
+    try {
+      final response = await http.get(Uri.parse(esp32Url)).timeout(const Duration(seconds: 5));
+      if (response.statusCode == 200) {
+        return response.bodyBytes;
+      }
+    } catch (e) {
+      // Ignore ESP32 errors
+    }
+    return null;
+  }
+
+  Future<bool> checkEsp32Connection() async {
+    try {
+      final resp = await http.get(Uri.parse(esp32Url)).timeout(const Duration(seconds: 5));
+      return resp.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // --- REALTIME ---
   Future<LiveAnswer> getLiveAnswerSynth(String query) async {
     final lr = LiveRetrieval();
     final res = await lr.search(query, topN: 3);
@@ -286,8 +219,7 @@ class AiService {
       return LiveAnswer(
         query: res.query,
         asOf: res.asOfLabel(),
-        plainText:
-            '${res.asOfLabel()}\nSorry, I couldn’t find reliable live info for that.',
+        plainText: '${res.asOfLabel()}\nSorry, I couldn’t find reliable live info for that.',
         items: const [],
       );
     }
@@ -315,7 +247,7 @@ $sourcesBlock
 Now produce ONE concise answer in plain text.
 ''';
 
-    final synthesized = await _sendTextToGemini(prompt);
+    final synthesized = await sendTextToGemini(prompt);
 
     final items = res.results
         .map((r) => LiveAnswerItem(
@@ -340,45 +272,8 @@ Now produce ONE concise answer in plain text.
       asOf: res.asOfLabel(),
       plainText: plainText.toString().trim(),
       items: items,
+      searchContext: res.results,
     );
-  }
-
-  static Future<LiveAnswer> getLiveAnswer(String query) async {
-    final lr = LiveRetrieval();
-    final res = await lr.search(query, topN: 3);
-
-    final buf = StringBuffer();
-    buf.writeln(res.asOfLabel());
-    if (res.results.isEmpty) {
-      buf.writeln('Sorry, I couldn’t find reliable live info for that.');
-    } else {
-      buf.writeln('Top sources:');
-      for (final r in res.results) {
-        final title = _shorten(r.title, 90);
-        buf.writeln('• $title (${r.domain})');
-      }
-    }
-
-    final items = res.results
-        .map((r) => LiveAnswerItem(
-              title: r.title,
-              url: r.url,
-              domain: r.domain,
-              date: r.date,
-            ))
-        .toList();
-
-    return LiveAnswer(
-      query: res.query,
-      asOf: res.asOfLabel(),
-      plainText: buf.toString().trim(),
-      items: items,
-    );
-  }
-
-  static String _shorten(String s, int max) {
-    if (s.length <= max) return s;
-    return '${s.substring(0, max - 1).trimRight()}…';
   }
 
 

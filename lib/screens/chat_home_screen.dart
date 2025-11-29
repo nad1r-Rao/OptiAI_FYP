@@ -10,6 +10,13 @@ import '../widgets/recording_animation.dart';
 import 'dart:typed_data';
 import '../providers/chat_provider.dart';
 import '../providers/speech_provider.dart';
+import '../providers/auth_provider.dart';
+import 'settings_screen.dart';
+import '../widgets/user_avatar.dart';
+import '../widgets/glasses_status.dart';
+import 'package:lottie/lottie.dart';
+
+
 
 class ChatHomeScreen extends StatefulWidget {
   const ChatHomeScreen({super.key});
@@ -81,14 +88,25 @@ class _ChatHomeScreenState extends State<ChatHomeScreen>
                     color: AppColors.background,
                     border: Border(bottom: BorderSide(color: AppColors.neonBlue, width: 0.5)),
                   ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  child: Column(
                     children: [
-                      Text('OptiAI Glasses', style: AppFonts.heading.copyWith(color: AppColors.neonBlue)),
-                      const CircleAvatar(
-                        backgroundColor: AppColors.neonGreen,
-                        child: Icon(Icons.person, color: AppColors.background),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text('OptiAI Glasses', style: AppFonts.heading.copyWith(color: AppColors.neonBlue)),
+                          UserAvatar(
+                              radius: 20,
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                                );
+                              },
+                            ),
+                        ],
                       ),
+                      const SizedBox(height: 10),
+                      const GlassesStatus(),
                     ],
                   ),
                 ),
@@ -147,7 +165,7 @@ class _ChatHomeScreenState extends State<ChatHomeScreen>
                           if (available) {
                             speechProvider.startListening(
                               onResult: (text) {
-                                _textController.text = text;
+                                // Do not update text controller, sending directly to chat
                               },
                               chatProvider: chatProvider,
                             );
@@ -267,16 +285,20 @@ class _TypingIndicatorState extends State<TypingIndicator>
 
   @override
   Widget build(BuildContext context) {
-    return FadeTransition(
-      opacity: _dotController,
-      child: Row(
-        children: [
-          Text(
-            'OptiAI Glasses is typing...',
-            style: AppFonts.body.copyWith(color: AppColors.softWhite),
-          ),
-        ],
-      ),
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.start,
+      children: [
+        Container(
+          margin: const EdgeInsets.only(left: 20),
+          height: 40,
+          child: Lottie.asset('assets/lottie/avatar.json'),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          'Thinking...',
+          style: AppFonts.body.copyWith(color: AppColors.softWhite, fontStyle: FontStyle.italic),
+        ),
+      ],
     );
   }
 }

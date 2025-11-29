@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-// import 'package:google_sign_in/google_sign_in.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+// import 'dart:io';
+import 'dart:typed_data';
 
 class AuthProvider with ChangeNotifier {
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -13,13 +16,50 @@ class AuthProvider with ChangeNotifier {
   // ✅ Sign up with email and password
   Future<String?> signUp(String email, String password) async {
     try {
-      await _auth.createUserWithEmailAndPassword(
+      final credential = await _auth.createUserWithEmailAndPassword(
         email: email,
         password: password,
       );
+      
+      // Send verification email immediately
+      if (credential.user != null && !credential.user!.emailVerified) {
+        try {
+          await credential.user!.sendEmailVerification();
+          print("DEBUG: Verification email sent to $email");
+        } catch (e) {
+          print("DEBUG: Failed to send verification email: $e");
+        }
+      }
+      
       return null;
     } on FirebaseAuthException catch (e) {
+      print("DEBUG: SignUp Error: ${e.code} - ${e.message}");
       return e.message;
+    }
+  }
+
+  // ✅ Send Email Verification
+  Future<String?> sendEmailVerification() async {
+    try {
+      final user = _auth.currentUser;
+      if (user != null && !user.emailVerified) {
+        await user.sendEmailVerification();
+        print("DEBUG: Manual verification email sent to ${user.email}");
+        return null;
+      }
+      return "User already verified or not logged in.";
+    } on FirebaseAuthException catch (e) {
+      print("DEBUG: SendVerification Error: ${e.code} - ${e.message}");
+      return e.message;
+    }
+  }
+
+  // ✅ Reload User (to refresh emailVerified status)
+  Future<void> reloadUser() async {
+    final user = _auth.currentUser;
+    if (user != null) {
+      await user.reload();
+      notifyListeners();
     }
   }
 
@@ -39,5 +79,96 @@ class AuthProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  
+  // ✅ Update Profile
+  Future<void> updateProfile({String? displayName, String? photoURL}) async {
+    User? user = _auth.currentUser;
+    if (user != null) {
+      if (displayName != null) await user.updateDisplayName(displayName);
+      if (photoURL != null) await user.updatePhotoURL(photoURL);
+      await user.reload();
+      notifyListeners();
+    }
+  }
+
+  // ✅ Upload Profile Image
+  Future<String?> uploadProfileImage(Uint8List imageBytes) async {
+    try {
+      User? user = _auth.currentUser;
+      if (user == null) return null;
+
+      final storageRef = FirebaseStorage.instance
+          .ref()
+          .child('profile_images')
+          .child('${user.uid}.jpg');
+
+      final metadata = SettableMetadata(contentType: 'image/jpeg');
+      
+      // Add timeout to prevent infinite loading
+      await storageRef.putData(imageBytes, metadata).timeout(
+        const Duration(seconds: 15),
+        onTimeout: () {
+          throw Exception("Upload timed out. Please check your internet connection.");
+        },
+      );
+
+      final downloadUrl = await storageRef.getDownloadURL();
+      await updateProfile(photoURL: downloadUrl);
+      return downloadUrl;
+    } catch (e) {
+      print("Error uploading image: $e");
+      throw e; // Rethrow to handle in UI
+    }
+  }
+
+  // ✅ Change Password
+  Future<void> changePassword(String newPassword) async {
+    User? user = _auth.currentUser;
+    if (user != null) {
+      await user.updatePassword(newPassword);
+    }
+  }
+
+  // ✅ Delete Account
+  Future<void> deleteAccount() async {
+    User? user = _auth.currentUser;
+    if (user != null) {
+      await user.delete();
+      notifyListeners();
+    }
+  }
+
+  // ✅ Google Sign-In
+  Future<String?> signInWithGoogle() async {
+    try {
+      final GoogleSignIn googleSignIn = GoogleSignIn();
+      final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
+
+      if (googleUser == null) return "Google Sign-In cancelled";
+
+      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+      final AuthCredential credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+
+      await _auth.signInWithCredential(credential);
+      return null;
+    } on FirebaseAuthException catch (e) {
+      return e.message;
+    } catch (e) {
+      return "An error occurred during Google Sign-In";
+    }
+  }
+
+  // ✅ Forgot Password
+  Future<String?> sendPasswordResetEmail(String email) async {
+    try {
+      await _auth.sendPasswordResetEmail(email: email);
+      print("DEBUG: Password reset email sent to $email");
+      return null;
+    } on FirebaseAuthException catch (e) {
+      print("DEBUG: PasswordReset Error: ${e.code} - ${e.message}");
+      return e.message;
+    }
+  }
 }

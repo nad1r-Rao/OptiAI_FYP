@@ -13,4 +13,11 @@ class AppFonts {
     fontSize: 16,
     color: Colors.white,
   );
+
+  static const code = TextStyle(
+    fontFamily: 'Courier New',
+    fontSize: 14,
+    color: Colors.white,
+    fontWeight: FontWeight.w500,
+  );
 }

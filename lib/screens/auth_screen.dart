@@ -8,6 +8,8 @@ import '../theme/app_colors.dart';
 import '../providers/auth_provider.dart';
 import '../widgets/animated_avatar.dart';
 
+import 'agent_loading_screen.dart';
+
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
 
@@ -33,6 +35,17 @@ class _AuthScreenState extends State<AuthScreen> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
+    
+    // Auto-login check
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final auth = Provider.of<AuthProvider>(context, listen: false);
+      if (auth.user != null) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const AgentLoadingScreen()),
+        );
+      }
+    });
 
     _glowController = AnimationController(
       vsync: this,
@@ -123,7 +136,7 @@ class _AuthScreenState extends State<AuthScreen> with TickerProviderStateMixin {
       await Future.delayed(const Duration(seconds: 2));
       if (context.mounted) {
         Navigator.pop(context);
-        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const ChatHomeScreen()));
+        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const AgentLoadingScreen()));
       }
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -151,6 +164,97 @@ class _AuthScreenState extends State<AuthScreen> with TickerProviderStateMixin {
         ),
       );
     }
+  }
+
+  Widget _buildGoogleSignInButton() {
+    return OutlinedButton.icon(
+      icon: Image.network(
+        'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c1/Google_%22G%22_logo.svg/1200px-Google_%22G%22_logo.svg.png',
+        height: 24,
+      ),
+      label: Text(
+        isLogin ? "Sign in with Google" : "Sign up with Google",
+        style: const TextStyle(color: Colors.white),
+      ),
+      style: OutlinedButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 12),
+        side: const BorderSide(color: Colors.white24),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+      ),
+      onPressed: () async {
+        setState(() => isLoading = true);
+        final auth = Provider.of<AuthProvider>(context, listen: false);
+        final result = await auth.signInWithGoogle();
+        setState(() => isLoading = false);
+
+        if (result == null) {
+          if (context.mounted) {
+            Navigator.pushReplacement(
+                context, MaterialPageRoute(builder: (_) => const AgentLoadingScreen()));
+          }
+        } else {
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(result)));
+          }
+        }
+      },
+    );
+  }
+
+  void _showForgotPasswordDialog(BuildContext context) {
+    final resetEmailController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.grey[900],
+        title: const Text("Reset Password", style: TextStyle(color: Colors.white)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              "Enter your email to receive a password reset link.",
+              style: TextStyle(color: Colors.white70),
+            ),
+            const SizedBox(height: 15),
+            TextField(
+              controller: resetEmailController,
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(
+                labelText: "Email",
+                labelStyle: TextStyle(color: Colors.white54),
+                enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
+                focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.cyanAccent)),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("Cancel", style: TextStyle(color: Colors.white54)),
+          ),
+          TextButton(
+            onPressed: () async {
+              final email = resetEmailController.text.trim();
+              if (email.isEmpty) return;
+              
+              Navigator.pop(ctx);
+              final result = await Provider.of<AuthProvider>(context, listen: false).sendPasswordResetEmail(email);
+              
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(result == null ? "Reset link sent to $email" : "Error: $result"),
+                    backgroundColor: result == null ? Colors.green : Colors.red,
+                  ),
+                );
+              }
+            },
+            child: const Text("Send Link", style: TextStyle(color: Colors.cyanAccent)),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget buildAuthForm() {
@@ -281,6 +385,30 @@ class _AuthScreenState extends State<AuthScreen> with TickerProviderStateMixin {
               style: AppFonts.body.copyWith(color: Colors.cyanAccent),
             ),
           ),
+          if (isLogin) ...[
+            TextButton(
+              onPressed: () {
+                _showForgotPasswordDialog(context);
+              },
+              child: Text(
+                "Forgot Password?",
+                style: AppFonts.body.copyWith(color: Colors.white70, fontSize: 14),
+              ),
+            ),
+          ],
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              Expanded(child: Divider(color: Colors.white24)),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                child: Text("OR", style: TextStyle(color: Colors.white54)),
+              ),
+              Expanded(child: Divider(color: Colors.white24)),
+            ],
+          ),
+          const SizedBox(height: 20),
+          _buildGoogleSignInButton(),
         ],
       ),
     );
@@ -297,20 +425,22 @@ class _AuthScreenState extends State<AuthScreen> with TickerProviderStateMixin {
             return Stack(
               alignment: Alignment.center,
               children: [
-                Container(
-                  width: 360,
-                  height: 500,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(25),
-                    boxShadow: [
-                      BoxShadow(
-                        color: _glowColor.value ?? Colors.cyanAccent,
-                        blurRadius: 40,
-                        spreadRadius: 6,
-                      ),
-                    ],
+                // Dynamic Glow Effect
+                Positioned.fill(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(25),
+                      boxShadow: [
+                        BoxShadow(
+                          color: _glowColor.value ?? Colors.cyanAccent,
+                          blurRadius: 40,
+                          spreadRadius: 6,
+                        ),
+                      ],
+                    ),
                   ),
                 ),
+                // Auth Form Card
                 ClipRRect(
                   borderRadius: BorderRadius.circular(25),
                   child: BackdropFilter(

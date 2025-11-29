@@ -167,7 +167,13 @@ class _ChatSidebarState extends State<ChatSidebar> {
                   )
                 : ElevatedButton.icon(
                     icon: const Icon(Icons.add),
-                    label: const Text('New Chat'),
+                    label: const Flexible(
+                      child: Text(
+                        'New Chat',
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
+                      ),
+                    ),
                     onPressed: () {
                       context.read<ChatProvider>().clearChat();
                       ScaffoldMessenger.of(context).showSnackBar(
