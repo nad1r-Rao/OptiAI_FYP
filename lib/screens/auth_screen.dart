@@ -447,29 +447,34 @@ class _AuthScreenState extends State<AuthScreen> with TickerProviderStateMixin {
                     filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
                     child: Container(
                       width: 360,
+                      constraints: BoxConstraints(
+                        maxHeight: MediaQuery.of(context).size.height * 0.85,
+                      ),
                       padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 20),
                       decoration: BoxDecoration(
                         color: Colors.black.withOpacity(0.45),
                         borderRadius: BorderRadius.circular(25),
                         border: Border.all(color: Colors.white10, width: 1),
                       ),
-                      child: AnimatedBuilder(
-                        animation: _flipController,
-                        builder: (context, child) {
-                          final angle = _flipController.value * math.pi;
-                          final isBack = angle > math.pi / 2;
-                          return Transform(
-                            alignment: Alignment.center,
-                            transform: Matrix4.rotationY(angle),
-                            child: isBack
-                                ? Transform(
-                                    alignment: Alignment.center,
-                                    transform: Matrix4.rotationY(math.pi),
-                                    child: buildAuthForm(),
-                                  )
-                                : buildAuthForm(),
-                          );
-                        },
+                      child: SingleChildScrollView(
+                        child: AnimatedBuilder(
+                          animation: _flipController,
+                          builder: (context, child) {
+                            final angle = _flipController.value * math.pi;
+                            final isBack = angle > math.pi / 2;
+                            return Transform(
+                              alignment: Alignment.center,
+                              transform: Matrix4.rotationY(angle),
+                              child: isBack
+                                  ? Transform(
+                                      alignment: Alignment.center,
+                                      transform: Matrix4.rotationY(math.pi),
+                                      child: buildAuthForm(),
+                                    )
+                                  : buildAuthForm(),
+                            );
+                          },
+                        ),
                       ),
                     ),
                   ),

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart'; // Added for kIsWeb
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'screens/splash_screen.dart';
@@ -8,30 +10,36 @@ import 'providers/speech_provider.dart';
 import 'providers/navigation_provider.dart';
 import 'providers/theme_provider.dart';
 import 'providers/auth_provider.dart';
-import 'providers/memory_provider.dart'; // Added import
+import 'providers/memory_provider.dart';
 import 'services/ai_services.dart';
+import 'services/calendar_service.dart';
 import 'config/env.dart';
-
-import 'package:flutter_dotenv/flutter_dotenv.dart'; // Added import
-
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'dart:async';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await dotenv.load(fileName: ".env"); // Load environment variables
+  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+  await dotenv.load(fileName: ".env");
 
-  // Firebase config required for web
-  await Firebase.initializeApp(
-    options: FirebaseOptions(
-      apiKey: dotenv.env['FIREBASE_API_KEY'] ?? '',
-      authDomain: "optiai-6cd49.firebaseapp.com",
-      projectId: "optiai-6cd49",
-      storageBucket: "optiai-6cd49.appspot.com",
-      messagingSenderId: "576297972114",
-      appId: "1:576297972114:web:ccfc479a208f0f0869d14b",
-    ),
-  );
+  //FIXED LOGIC:
+  if (kIsWeb) {
+    // Only use these manual keys when running on a Browser
+    await Firebase.initializeApp(
+      options: FirebaseOptions(
+        apiKey: dotenv.env['FIREBASE_API_KEY'] ?? '',
+        authDomain: "optiai-6cd49.firebaseapp.com",
+        projectId: "optiai-6cd49",
+        storageBucket: "optiai-6cd49.appspot.com",
+        messagingSenderId: "576297972114",
+        appId: "1:576297972114:web:ccfc479a208f0f0869d14b",
+      ),
+    );
+  } else {
+    // For Android, it will automatically read your google-services.json file!
+    await Firebase.initializeApp();
+  }
 
   runApp(const OptiAIGlassesApp());
 }
@@ -51,9 +59,6 @@ class _OptiAIGlassesAppState extends State<OptiAIGlassesApp> {
   void initState() {
     super.initState();
     _connectivitySubscription = Connectivity().onConnectivityChanged.listen((List<ConnectivityResult> results) {
-      // If any of the results is not none, we have connection (simplification)
-      // Or check if results.contains(ConnectivityResult.none)
-      
       bool hasConnection = !results.contains(ConnectivityResult.none);
       
       if (!hasConnection) {
@@ -61,19 +66,11 @@ class _OptiAIGlassesAppState extends State<OptiAIGlassesApp> {
           const SnackBar(
             content: Text("No Internet Connection"),
             backgroundColor: Colors.red,
-            duration: Duration(days: 1), // Persistent until connected
+            duration: Duration(days: 1), 
           ),
         );
       } else {
         _scaffoldMessengerKey.currentState?.hideCurrentSnackBar();
-        // Optional: Show "Back Online" briefly
-        // _scaffoldMessengerKey.currentState?.showSnackBar(
-        //   const SnackBar(
-        //     content: Text("Back Online"),
-        //     backgroundColor: Colors.green,
-        //     duration: Duration(seconds: 2),
-        //   ),
-        // );
       }
     });
   }
@@ -97,17 +94,24 @@ class _OptiAIGlassesAppState extends State<OptiAIGlassesApp> {
           ),
         ),
 
-        // 2. Memory Provider
+        // 2. Memory & Calendar Providers
         ChangeNotifierProvider(create: (_) => MemoryProvider()),
+        Provider<CalendarService>(create: (_) => CalendarService()),
 
-        // 3. Chat Provider (depends on AiService and MemoryProvider)
-        ChangeNotifierProxyProvider2<AiService, MemoryProvider, ChatProvider>(
+        // 3. Chat Provider (depends on AiService, MemoryProvider, CalendarService)
+        ChangeNotifierProxyProvider3<AiService, MemoryProvider, CalendarService, ChatProvider>(
           create: (context) => ChatProvider(
             aiService: context.read<AiService>(),
             memoryProvider: context.read<MemoryProvider>(),
+            calendarService: context.read<CalendarService>(),
           ),
-          update: (context, aiService, memoryProvider, previous) =>
-              previous ?? ChatProvider(aiService: aiService, memoryProvider: memoryProvider),
+          update: (context, aiService, memoryProvider, calendarService, previous) =>
+              previous ?? 
+              ChatProvider(
+                aiService: aiService, 
+                memoryProvider: memoryProvider,
+                calendarService: calendarService,
+              ),
         ),
 
         // 4. Other Providers

@@ -15,6 +15,7 @@ import 'settings_screen.dart';
 import '../widgets/user_avatar.dart';
 import '../widgets/glasses_status.dart';
 import 'package:lottie/lottie.dart';
+import '../widgets/empty_chat_state.dart';
 
 
 
@@ -76,44 +77,53 @@ class _ChatHomeScreenState extends State<ChatHomeScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
 
     return Scaffold(
-      body: Row(
+      appBar: AppBar(
+        backgroundColor: AppColors.background,
+        elevation: 0,
+        leading: Builder(
+          builder: (context) => IconButton(
+            icon: Icon(Icons.menu, color: AppColors.neonBlue),
+            onPressed: () => Scaffold.of(context).openDrawer(),
+          ),
+        ),
+        title: Text('OptiAI Glasses', style: AppFonts.heading.copyWith(color: AppColors.neonBlue)),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 16.0),
+            child: UserAvatar(
+              radius: 18,
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                );
+              },
+            ),
+          ),
+        ],
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1.0),
+          child: Container(
+            color: AppColors.neonBlue,
+            height: 0.5,
+          ),
+        ),
+      ),
+      drawer: const ChatSidebar(),
+      body: Column(
         children: [
-          const ChatSidebar(),
+          // Top container removed as it's now in AppBar
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
+            color: AppColors.background,
+            child: const GlassesStatus(),
+          ),
           Expanded(
-            child: Column(
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
-                  decoration: BoxDecoration(
-                    color: AppColors.background,
-                    border: Border(bottom: BorderSide(color: AppColors.neonBlue, width: 0.5)),
-                  ),
-                  child: Column(
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text('OptiAI Glasses', style: AppFonts.heading.copyWith(color: AppColors.neonBlue)),
-                          UserAvatar(
-                              radius: 20,
-                              onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(builder: (_) => const SettingsScreen()),
-                                );
-                              },
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      const GlassesStatus(),
-                    ],
-                  ),
-                ),
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.all(20),
-                    child: ListView.builder(
+            child: Container(
+              padding: const EdgeInsets.all(20),
+              child: chatProvider.messages.isEmpty
+                  ? const EmptyChatState()
+                  : ListView.builder(
                       controller: _scrollController,
                       itemCount: chatProvider.messages.length,
                       itemBuilder: (context, index) {
@@ -129,78 +139,75 @@ class _ChatHomeScreenState extends State<ChatHomeScreen>
                         );
                       },
                     ),
+            ),
+          ),
+          if (chatProvider.isThinking)
+            const Padding(
+              padding: EdgeInsets.only(bottom: 10),
+              child: TypingIndicator(),
+            ),
+          if (speechProvider.isListening)
+            const Padding(
+              padding: EdgeInsets.only(bottom: 10),
+              child: RecordingAnimation(),
+            ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            decoration: BoxDecoration(
+              border: Border(top: BorderSide(color: AppColors.neonBlue, width: 0.5)),
+              color: AppColors.background,
+            ),
+            child: Row(
+              children: [
+                IconButton(
+                  icon: Icon(Icons.camera_alt, color: AppColors.neonBlue),
+                  onPressed: () async {
+                    final picked = await ImagePicker().pickImage(source: ImageSource.gallery);
+                    if (picked != null) {
+                      final imageBytes = await picked.readAsBytes();
+                      chatProvider.sendTextWithImageToGemini("Analyze this image", imageBytes);
+                    }
+                  },
+                ),
+                GestureDetector(
+                  onLongPressStart: (_) async {
+                    bool available = await speechProvider.initialize();
+                    if (available) {
+                      speechProvider.startListening(
+                        onResult: (text) {
+                          // Do not update text controller, sending directly to chat
+                        },
+                        chatProvider: chatProvider,
+                      );
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Speech recognition not available')),
+                      );
+                    }
+                  },
+                  onLongPressEnd: (_) {
+                    speechProvider.stopListening();
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    child: Icon(Icons.mic, color: AppColors.neonGreen),
                   ),
                 ),
-                if (chatProvider.isThinking)
-                  const Padding(
-                    padding: EdgeInsets.only(bottom: 10),
-                    child: TypingIndicator(),
+                Expanded(
+                  child: TextField(
+                    controller: _textController,
+                    style: AppFonts.body,
+                    decoration: InputDecoration(
+                      hintText: 'Ask anything..',
+                      hintStyle: TextStyle(color: AppColors.softWhite),
+                      border: InputBorder.none,
+                    ),
+                    onSubmitted: (_) => _sendText(),
                   ),
-                if (speechProvider.isListening)
-                  const Padding(
-                    padding: EdgeInsets.only(bottom: 10),
-                    child: RecordingAnimation(),
-                  ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                  decoration: BoxDecoration(
-                    border: Border(top: BorderSide(color: AppColors.neonBlue, width: 0.5)),
-                    color: AppColors.background,
-                  ),
-                  child: Row(
-                    children: [
-                      IconButton(
-                        icon: Icon(Icons.camera_alt, color: AppColors.neonBlue),
-                        onPressed: () async {
-                          final picked = await ImagePicker().pickImage(source: ImageSource.gallery);
-                          if (picked != null) {
-                            final imageBytes = await picked.readAsBytes();
-                            chatProvider.sendTextWithImageToGemini("Analyze this image", imageBytes);
-                          }
-                        },
-                      ),
-                      GestureDetector(
-                        onLongPressStart: (_) async {
-                          bool available = await speechProvider.initialize();
-                          if (available) {
-                            speechProvider.startListening(
-                              onResult: (text) {
-                                // Do not update text controller, sending directly to chat
-                              },
-                              chatProvider: chatProvider,
-                            );
-                          } else {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Speech recognition not available')),
-                            );
-                          }
-                        },
-                        onLongPressEnd: (_) {
-                          speechProvider.stopListening();
-                        },
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                          child: Icon(Icons.mic, color: AppColors.neonGreen),
-                        ),
-                      ),
-                      Expanded(
-                        child: TextField(
-                          controller: _textController,
-                          style: AppFonts.body,
-                          decoration: InputDecoration(
-                            hintText: 'Type your command...',
-                            hintStyle: TextStyle(color: AppColors.softWhite),
-                            border: InputBorder.none,
-                          ),
-                          onSubmitted: (_) => _sendText(),
-                        ),
-                      ),
-                      IconButton(
-                        icon: Icon(Icons.send, color: AppColors.neonPurple),
-                        onPressed: _sendText,
-                      ),
-                    ],
-                  ),
+                ),
+                IconButton(
+                  icon: Icon(Icons.send, color: AppColors.neonPurple),
+                  onPressed: _sendText,
                 ),
               ],
             ),

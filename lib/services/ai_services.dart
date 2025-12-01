@@ -25,7 +25,7 @@ class LiveAnswer {
   final String asOf;
   final String plainText;
   final List<LiveAnswerItem> items;
-  final List<SerpResult> searchContext; // Changed SearchResult to SerpResult
+  final List<SerpResult> searchContext;
 
   LiveAnswer({
     required this.query,
@@ -50,6 +50,10 @@ enum QueryType {
   realtime,
   text,
   memory_store,
+  calendar_read,
+  calendar_write,
+  calendar_delete,
+  phone_call,
 }
 
 class AiService {
@@ -67,7 +71,7 @@ class AiService {
     required this.modelApiUrl,
   }) {
     _model = GenerativeModel(
-      model: 'gemini-2.0-flash', // User requested newer model
+      model: 'gemini-2.0-flash',
       apiKey: geminiApiKey,
     );
     _visionModel = GenerativeModel(
@@ -91,7 +95,11 @@ You are a router for smart glasses. Classify the user's query into one of these 
 1. IMAGE: The user wants to capture/analyze an image (e.g., "What is this?", "Read this text", "Look at the view").
 2. REALTIME: The user asks for live/changing info (e.g., "Weather?", "Stock price?", "Who won the game?", "Current time").
 3. MEMORY_STORE: The user explicitly asks you to remember a fact (e.g., "Remember that my keys are in the bowl", "Note that I like sushi").
-4. TEXT: General chat, knowledge, or logic (e.g., "Tell me a joke", "Summarize this", "Who is Einstein?").
+4. CALENDAR_READ: The user asks about their schedule (e.g., "What is my schedule?", "When is my next meeting?", "Do I have any events today?").
+5. CALENDAR_WRITE: The user wants to create/schedule a NEW event (e.g., "Schedule a meeting with Bob", "Remind me to call mom", "Add dinner to calendar").
+6. CALENDAR_DELETE: The user wants to REMOVE/CANCEL an existing event (e.g., "Delete the meeting with Bob", "Cancel my 2pm appointment", "Remove the lunch event", "Delete dinner with Mahnoor").
+7. PHONE_CALL: The user wants to make a phone call (e.g., "Call John", "Dial Mom", "Phone Alice").
+8. TEXT: General chat, knowledge, or logic (e.g., "Tell me a joke", "Summarize this", "Who is Einstein?").
 
 Query: "$query"
 """;
@@ -100,7 +108,7 @@ Query: "$query"
       prompt += "\nLocal Model Prediction: $localContext\n(Use this prediction to help you decide, but trust your own judgment if it seems wrong.)\n";
     }
 
-    prompt += '\nReply ONLY with one word: IMAGE, REALTIME, MEMORY_STORE, or TEXT.';
+    prompt += '\nReply ONLY with one word: IMAGE, REALTIME, MEMORY_STORE, CALENDAR_READ, CALENDAR_WRITE, CALENDAR_DELETE, PHONE_CALL, or TEXT.';
 
     for (int attempt = 0; attempt < 3; attempt++) {
       try {
@@ -111,6 +119,10 @@ Query: "$query"
         if (text.contains('IMAGE')) return QueryType.image;
         if (text.contains('REALTIME')) return QueryType.realtime;
         if (text.contains('MEMORY')) return QueryType.memory_store;
+        if (text.contains('CALENDAR_READ')) return QueryType.calendar_read;
+        if (text.contains('CALENDAR_WRITE')) return QueryType.calendar_write;
+        if (text.contains('CALENDAR_DELETE')) return QueryType.calendar_delete;
+        if (text.contains('PHONE_CALL')) return QueryType.phone_call;
         
         return QueryType.text;
       } catch (e) {
@@ -120,17 +132,82 @@ Query: "$query"
     return QueryType.text; // Fallback after retries
   }
 
+  // --- CALENDAR EXTRACTION ---
+  Future<Map<String, dynamic>> extractCalendarEvent(String text) async {
+    final now = DateTime.now();
+    final prompt = """
+Extract event details from this text.
+Current Time: $now
+User: "$text"
+
+Return JSON with:
+- title: String
+- startTime: ISO8601 String (approximate if needed)
+- endTime: ISO8601 String (default to 1 hour after start if not specified)
+- description: String (optional)
+
+Example JSON:
+{"title": "Meeting with Bob", "startTime": "2024-12-02T14:00:00", "endTime": "2024-12-02T15:00:00", "description": ""}
+""";
+
+    try {
+      final content = [Content.text(prompt)];
+      final response = await _model.generateContent(content);
+      final jsonStr = response.text?.replaceAll('```json', '').replaceAll('```', '').trim() ?? '{}';
+      return jsonDecode(jsonStr);
+    } catch (e) {
+      return {};
+    }
+  }
+
+  Future<String> extractCalendarDeletion(String text) async {
+    final prompt = """
+Extract the title of the event the user wants to delete.
+User: "$text"
+
+Return ONLY the title string. Do not include "delete" or "cancel" in the title unless it's part of the event name.
+If the user says "Delete the meeting with Bob", return "Meeting with Bob".
+If the user says "Cancel dinner", return "Dinner".
+""";
+
+    try {
+      final content = [Content.text(prompt)];
+      final response = await _model.generateContent(content);
+      return response.text?.trim() ?? text;
+    } catch (e) {
+      return text;
+    }
+  }
+
+  Future<String> extractContactName(String text) async {
+    final prompt = """
+Extract the name of the person the user wants to call.
+User: "$text"
+
+Return ONLY the name.
+If the user says "Call John", return "John".
+If the user says "Call Mom", return "Mom".
+""";
+
+    try {
+      final content = [Content.text(prompt)];
+      final response = await _model.generateContent(content);
+      return response.text?.trim() ?? "";
+    } catch (e) {
+      return "";
+    }
+  }
+
   // --- LOCAL MODEL CLASSIFICATION ---
   Future<String?> classify(String text) async {
     try {
       final response = await http.post(
         Uri.parse('$modelApiUrl/predict'), 
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'query': text}), // Changed 'text' to 'query'
+        body: jsonEncode({'query': text}),
       ).timeout(const Duration(seconds: 2));
 
       if (response.statusCode == 200) {
-        // Return the raw body so the LLM can see prob/trigger/ver
         return response.body;
       }
     } catch (e) {
@@ -139,14 +216,33 @@ Query: "$query"
     return null;
   }
 
+  // --- MEMORY EXTRACTION ---
+  Future<String> extractFact(String text) async {
+    final prompt = """
+Extract the core fact from this user statement.
+User: "$text"
+Fact (concise, 3rd person if about user):
+""";
+    
+    try {
+      final content = [Content.text(prompt)];
+      final response = await _model.generateContent(content);
+      return response.text?.trim() ?? text;
+    } catch (e) {
+      return text; // Fallback to raw text
+    }
+  }
+
   // --- TEXT ---
   Future<String> sendTextToGemini(String text, {
     List<String> memories = const [],
     List<Content> chatHistory = const [],
+    String personality = 'Friendly',
   }) async {
     for (int attempt = 0; attempt < 3; attempt++) {
       try {
         String systemContext = "You are OptiAI, a helpful assistant inside smart glasses. "
+            "Your personality is $personality. "
             "Keep your answers VERY concise (1-2 sentences max). "
             "Do NOT use markdown, asterisks, or special formatting. Just plain text. "
             "Be helpful, friendly, and direct.\n\n";
@@ -166,6 +262,8 @@ Query: "$query"
         ]);
 
         final response = await chat.sendMessage(Content.text(text));
+        return response.text ?? "No response from AI";
+      }catch (e) {
         return "Error connecting to Gemini: $e";
       }
     }
@@ -275,6 +373,4 @@ Now produce ONE concise answer in plain text.
       searchContext: res.results,
     );
   }
-
-
 }

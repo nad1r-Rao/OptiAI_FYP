@@ -3,15 +3,20 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
-import 'package:google_generative_ai/google_generative_ai.dart'; // Added import
+import 'package:google_generative_ai/google_generative_ai.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/chat_message.dart';
 import '../models/conversation.dart';
 import '../services/ai_services.dart';
+import '../services/calendar_service.dart';
+import '../services/contact_service.dart';
 import 'memory_provider.dart';
 
 class ChatProvider extends ChangeNotifier {
   final AiService aiService;
   final MemoryProvider memoryProvider;
+  final CalendarService calendarService;
+  final ContactService contactService = ContactService();
   final FlutterTts _flutterTts = FlutterTts();
 
   final List<ChatMessage> _messages = [];
@@ -30,15 +35,20 @@ class ChatProvider extends ChangeNotifier {
   ChatProvider({
     required this.aiService,
     required this.memoryProvider,
+    required this.calendarService,
   }) {
     _initTts();
-    memoryProvider.loadMemories();
   }
 
   void _initTts() async {
     await _flutterTts.setLanguage("en-US");
     await _flutterTts.setPitch(1.0);
     await _flutterTts.setSpeechRate(0.5);
+  }
+
+  Future<void> setVoiceSpeed(double speed) async {
+    await _flutterTts.setSpeechRate(speed);
+    notifyListeners();
   }
 
   void _setThinking(bool value) {
@@ -111,7 +121,7 @@ class ChatProvider extends ChangeNotifier {
     _messages.add(ChatMessage(isUser: isUser, message: message));
     notifyListeners();
     if (!isUser) {
-       _speak(message);
+      _speak(message);
     }
   }
 
@@ -214,71 +224,237 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Load chat history from Firestore (Legacy method kept for compatibility if needed, but updated to use loadConversations logic or just ignored)
   Future<void> loadChatHistory({bool show = true, bool force = false}) async {
-    // For now, we'll just load conversations instead of the old flat history
     await loadConversations();
   }
-  
+
   Future<void> clearChatHistoryFromFirestore() async {
-      await clearAllConversations();
+    await clearAllConversations();
   }
 
   /// Send plain text message (routes through the model → text or image)
   Future<void> sendText(String text) async {
-
-    if (text.trim().isEmpty) return;
-
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) {
-
+    print("DEBUG: sendText called with: $text");
+    if (text.trim().isEmpty) {
+      print("DEBUG: Text is empty");
       return;
     }
+
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    print("DEBUG: Current UID: $uid");
+    if (uid == null) {
+      print("DEBUG: User not logged in!");
+      return;
+    }
+
+    // Load settings
+    final prefs = await SharedPreferences.getInstance();
+    final autoCapture = prefs.getBool('auto_capture') ?? true;
+    final personality = prefs.getString('ai_personality') ?? 'Friendly';
+    print("DEBUG: Settings loaded. AutoCapture: $autoCapture, Personality: $personality");
 
     // Show user message
     final userMsg = ChatMessage(isUser: true, message: text);
     _messages.add(userMsg);
     notifyListeners();
-    await _appendToFirestore(text: text, sender: 'user');
+    print("DEBUG: User message added to local state");
+    
+    try {
+      await _appendToFirestore(text: text, sender: 'user');
+      print("DEBUG: User message saved to Firestore");
+    } catch (e) {
+      print("DEBUG: Failed to save to Firestore: $e");
+    }
 
     // Model-driven flow
     _setThinking(true);
+    print("DEBUG: Thinking state set to true");
     try {
-      // 1. Local Model Classification (The "First Pass")
+      // 1. Local Model Classification
       String? localPrediction;
       try {
-        localPrediction = await aiService.classify(text); 
+        print("DEBUG: Calling aiService.classify");
+        localPrediction = await aiService.classify(text);
+        print("DEBUG: Local prediction: $localPrediction");
       } catch (e) {
+        print("DEBUG: Local classify failed: $e");
         // Ignore local model errors
       }
 
-      // 2. Gemini Router (The "Brain") - with local context
-      final queryType = await aiService.routeQuery(text, localContext: localPrediction);
+      // 2. Gemini Router
+      print("DEBUG: Calling aiService.routeQuery");
+      final queryType =
+          await aiService.routeQuery(text, localContext: localPrediction);
+      print("DEBUG: Query routed to: $queryType");
 
       if (queryType == QueryType.realtime) {
         // --- REALTIME FLOW ---
-        try {
-          final answer = await aiService.getLiveAnswerSynth(text);
-          await _addAiMessage(answer.plainText, speak: false);
+        final answer = await aiService.getLiveAnswerSynth(text);
+        await _addAiMessage(answer.plainText, speak: false);
 
-          // Speak only the concise synthesized line
-          final lines = answer.plainText.split('\n');
-          final idx = lines.indexWhere((l) => l.startsWith('As of '));
-          String synthForSpeech;
-          if (idx != -1 && idx + 1 < lines.length) {
-            synthForSpeech = (lines
-                    .skip(idx + 1)
-                    .firstWhere((l) => l.trim().isNotEmpty, orElse: () => ''))
-                .trim();
+        // Speak only the concise synthesized line
+        final lines = answer.plainText.split('\n');
+        final idx = lines.indexWhere((l) => l.startsWith('As of '));
+        String synthForSpeech;
+
+        if (idx != -1 && idx + 1 < lines.length) {
+          synthForSpeech = (lines
+                  .skip(idx + 1)
+                  .firstWhere((l) => l.trim().isNotEmpty, orElse: () => ''))
+              .trim();
+        } else {
+          synthForSpeech = lines
+              .firstWhere((l) => l.trim().isNotEmpty, orElse: () => '')
+              .trim();
+        }
+        await _speak(synthForSpeech);
+
+      } else if (queryType == QueryType.image) {
+        // --- VISUAL FLOW (Auto-Capture) ---
+        if (!autoCapture) {
+          // Fallback to text if auto-capture is disabled
+          final response = await aiService.sendTextToGemini(
+              text, memories: memoryProvider.memories, personality: personality);
+          await _addAiMessage(response);
+        } else {
+          await _addAiMessage("Capturing image...", speak: false);
+          
+          final imageBytes = await aiService.captureImageFromESP32();
+          
+          if (imageBytes != null) {
+            _messages.add(ChatMessage(
+              isUser: true, 
+              message: "Captured Image", 
+              imageBytes: imageBytes
+            ));
+            notifyListeners();
+
+            final reply = await aiService.sendTextWithImageToGemini(text, imageBytes);
+            await _addAiMessage(reply);
           } else {
-            synthForSpeech = lines
-                .firstWhere((l) => l.trim().isNotEmpty, orElse: () => '')
-                .trim();
-  Future<void> sendTextWithImageToGemini(String text, Uint8List imageBytes) async {
-    final userMsg = ChatMessage(isUser: true, message: text, imageBytes: imageBytes);
+            await _addAiMessage(
+              "I couldn't connect to the camera. Please check the connection.",
+              speak: true
+            );
+          }
+        }
+
+      } else if (queryType == QueryType.memory_store) {
+        // --- MEMORY FLOW ---
+        final fact = await aiService.extractFact(text);
+        await memoryProvider.addMemory(fact);
+        await _addAiMessage("I'll remember that.");
+
+      } else if (queryType == QueryType.calendar_read) {
+        // --- CALENDAR READ FLOW ---
+        await _addAiMessage("Checking your calendar...", speak: false);
+        final events = await calendarService.getEventsForDay(DateTime.now());
+        
+        if (events.isEmpty) {
+          await _addAiMessage("You have no events scheduled for today.");
+        } else {
+          String eventSummary = "Here are your events for today:\n";
+          for (var e in events) {
+            eventSummary += "- ${e.title} at ${e.start}\n";
+          }
+          // Ask AI to summarize nicely
+          final summary = await aiService.sendTextToGemini(
+            "Summarize these calendar events for the user naturally: $eventSummary",
+            personality: personality
+          );
+          await _addAiMessage(summary);
+        }
+
+      } else if (queryType == QueryType.calendar_write) {
+        // --- CALENDAR WRITE FLOW ---
+        await _addAiMessage("Scheduling that for you...", speak: false);
+        final details = await aiService.extractCalendarEvent(text);
+        
+        if (details.isNotEmpty && details.containsKey('title') && details.containsKey('startTime')) {
+          final title = details['title'];
+          final start = DateTime.parse(details['startTime']);
+          final end = details.containsKey('endTime') 
+              ? DateTime.parse(details['endTime']) 
+              : start.add(const Duration(hours: 1));
+          final desc = details['description'];
+
+          final result = await calendarService.createEvent(
+            title: title,
+            startTime: start,
+            endTime: end,
+            description: desc,
+          );
+          await _addAiMessage(result);
+        } else {
+          await _addAiMessage("I couldn't understand the event details. Please try again.");
+        }
+
+      } else if (queryType == QueryType.calendar_delete) {
+        // --- CALENDAR DELETE FLOW ---
+        await _addAiMessage("Searching for that event...", speak: false);
+        
+        // Use AI to extract the title cleanly
+        String targetTitle = await aiService.extractCalendarDeletion(text);
+        
+        print("DEBUG: Target title for deletion (AI extracted): '$targetTitle'");
+            
+        if (targetTitle.isEmpty) {
+           await _addAiMessage("I'm not sure which event to delete. Please specify the title.");
+        } else {
+           final result = await calendarService.deleteEvent(targetTitle);
+           print("DEBUG: Delete result: $result");
+           await _addAiMessage(result);
+           
+           // Fallback: If not found, explain why
+           if (result.startsWith("Could not find")) {
+             final explanation = await aiService.sendTextToGemini(
+               "The user asked to delete '$text', but I couldn't find an event matching '$targetTitle'. Explain this briefly and ask for the exact title.",
+               personality: personality
+             );
+             await _addAiMessage(explanation);
+           }
+        }
+
+      } else if (queryType == QueryType.phone_call) {
+        // --- PHONE CALL FLOW ---
+        await _addAiMessage("Looking up contact...", speak: false);
+        
+        final name = await aiService.extractContactName(text);
+        if (name.isEmpty) {
+          await _addAiMessage("Who would you like to call?");
+        } else {
+          final result = await contactService.findAndCallContact(name);
+          await _addAiMessage(result);
+        }
+
+      } else {
+        // --- GENERAL CHAT FLOW ---
+        print("DEBUG: General chat flow");
+        final response = await aiService.sendTextToGemini(
+            text, memories: memoryProvider.memories, personality: personality);
+        print("DEBUG: Gemini response: $response");
+        await _addAiMessage(response);
+      }
+
+    } catch (e, stack) {
+      print("DEBUG: Error in sendText: $e");
+      print("DEBUG: Stack trace: $stack");
+      await _addAiMessage('Error: $e', speak: false);
+    } finally {
+      _setThinking(false);
+      print("DEBUG: Thinking state set to false");
+    }
+  }
+
+  /// Send Image + Text to Gemini
+  Future<void> sendTextWithImageToGemini(
+      String text, Uint8List imageBytes) async {
+    final userMsg =
+        ChatMessage(isUser: true, message: text, imageBytes: imageBytes);
     _messages.add(userMsg);
     notifyListeners();
-    await _appendToFirestore(text: text, sender: 'user'); // Note: not saving image to FS yet
+    await _appendToFirestore(
+        text: text, sender: 'user'); // Note: not saving image to FS yet
 
     _setThinking(true);
     try {

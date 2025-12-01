@@ -11,10 +11,12 @@ tasks.register<Delete>("clean") {
 }
 
 plugins {
+    // 👇 CHANGE THIS LINE from "8.0.2" to "8.7.0"
+    id("com.android.application") version "8.7.0" apply false
 
-    id("com.android.application") version "8.0.2" apply false
-    id("org.jetbrains.kotlin.android") version "1.8.21" apply false
+    // You might need to update Kotlin later, but try keeping this for now:
+    id("org.jetbrains.kotlin.android") version "2.1.0" apply false
 
-    // ✅ Add this line:
+    // This line is fine:
     id("com.google.gms.google-services") version "4.3.15" apply false
 }

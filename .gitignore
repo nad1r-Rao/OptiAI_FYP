@@ -45,3 +45,9 @@ app.*.map.json
 /android/app/release
 
 .env
+# Android build generated folders (Add these!)
+/android/app/build/
+/android/build/
+
+# Firebase Keys (Add this if you want to keep keys private)
+/android/app/google-services.json
