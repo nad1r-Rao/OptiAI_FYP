@@ -12,8 +12,12 @@ class SpeechProvider extends ChangeNotifier {
   bool _isAwake = false;
   Timer? _sleepTimer;
   
+  // Continuous Conversation Mode
+  bool _isConversationMode = false;
+  
   bool get isListening => _isListening;
   bool get isAwake => _isAwake;
+  bool get isConversationMode => _isConversationMode;
   String get recognizedText => _recognizedText;
 
   Future<bool> initialize() async {
@@ -66,6 +70,16 @@ class SpeechProvider extends ChangeNotifier {
   void _resetSleepTimer() {
     _sleepTimer?.cancel();
     _sleepTimer = Timer(const Duration(seconds: 30), _goToSleep);
+  }
+
+  void setConversationMode(bool value) {
+    _isConversationMode = value;
+    notifyListeners();
+  }
+
+  void toggleConversationMode() {
+    _isConversationMode = !_isConversationMode;
+    notifyListeners();
   }
 
 

@@ -14,26 +14,28 @@ class AuthProvider with ChangeNotifier {
   Stream<User?> get authStateChanges => _auth.authStateChanges();
 
   // ✅ Sign up with email and password
-  Future<String?> signUp(String email, String password) async {
+  Future<String?> signUp(String email, String password, {String? displayName}) async {
     try {
       final credential = await _auth.createUserWithEmailAndPassword(
         email: email,
         password: password,
       );
       
-      // Send verification email immediately
-      if (credential.user != null && !credential.user!.emailVerified) {
-        try {
-          await credential.user!.sendEmailVerification();
-          print("DEBUG: Verification email sent to $email");
-        } catch (e) {
-          print("DEBUG: Failed to send verification email: $e");
+      if (credential.user != null) {
+        if (displayName != null && displayName.isNotEmpty) {
+          await credential.user!.updateDisplayName(displayName);
+        }
+        
+        if (!credential.user!.emailVerified) {
+          try {
+            await credential.user!.sendEmailVerification();
+          } catch (e) {
+          }
         }
       }
       
       return null;
     } on FirebaseAuthException catch (e) {
-      print("DEBUG: SignUp Error: ${e.code} - ${e.message}");
       return e.message;
     }
   }
@@ -44,12 +46,12 @@ class AuthProvider with ChangeNotifier {
       final user = _auth.currentUser;
       if (user != null && !user.emailVerified) {
         await user.sendEmailVerification();
-        print("DEBUG: Manual verification email sent to ${user.email}");
+
         return null;
       }
       return "User already verified or not logged in.";
     } on FirebaseAuthException catch (e) {
-      print("DEBUG: SendVerification Error: ${e.code} - ${e.message}");
+
       return e.message;
     }
   }
@@ -115,7 +117,7 @@ class AuthProvider with ChangeNotifier {
       await updateProfile(photoURL: downloadUrl);
       return downloadUrl;
     } catch (e) {
-      print("Error uploading image: $e");
+
       throw e; // Rethrow to handle in UI
     }
   }
@@ -154,8 +156,10 @@ class AuthProvider with ChangeNotifier {
       await _auth.signInWithCredential(credential);
       return null;
     } on FirebaseAuthException catch (e) {
+
       return e.message;
-    } catch (e) {
+    } catch (e, stack) {
+
       return "An error occurred during Google Sign-In";
     }
   }
@@ -164,10 +168,10 @@ class AuthProvider with ChangeNotifier {
   Future<String?> sendPasswordResetEmail(String email) async {
     try {
       await _auth.sendPasswordResetEmail(email: email);
-      print("DEBUG: Password reset email sent to $email");
+
       return null;
     } on FirebaseAuthException catch (e) {
-      print("DEBUG: PasswordReset Error: ${e.code} - ${e.message}");
+
       return e.message;
     }
   }

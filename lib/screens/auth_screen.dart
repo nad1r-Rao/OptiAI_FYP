@@ -23,6 +23,8 @@ class _AuthScreenState extends State<AuthScreen> with TickerProviderStateMixin {
 
   final emailController = TextEditingController();
   final passwordController = TextEditingController();
+  final displayNameController = TextEditingController();
+  final confirmPasswordController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
 
   late final AnimationController _glowController;
@@ -72,6 +74,8 @@ class _AuthScreenState extends State<AuthScreen> with TickerProviderStateMixin {
     _flipController.dispose();
     emailController.dispose();
     passwordController.dispose();
+    displayNameController.dispose();
+    confirmPasswordController.dispose();
     super.dispose();
   }
 
@@ -80,6 +84,8 @@ class _AuthScreenState extends State<AuthScreen> with TickerProviderStateMixin {
       isLogin = !isLogin;
       emailController.clear();
       passwordController.clear();
+      displayNameController.clear();
+      confirmPasswordController.clear();
     });
 
     if (_flipController.status == AnimationStatus.dismissed ||
@@ -101,7 +107,7 @@ class _AuthScreenState extends State<AuthScreen> with TickerProviderStateMixin {
 
     final result = isLogin
         ? await auth.login(email, password)
-        : await auth.signUp(email, password);
+        : await auth.signUp(email, password, displayName: displayNameController.text.trim());
 
     setState(() => isLoading = false);
 
@@ -171,6 +177,7 @@ class _AuthScreenState extends State<AuthScreen> with TickerProviderStateMixin {
       icon: Image.network(
         'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c1/Google_%22G%22_logo.svg/1200px-Google_%22G%22_logo.svg.png',
         height: 24,
+        errorBuilder: (context, error, stackTrace) => const Icon(Icons.login, color: Colors.white, size: 24),
       ),
       label: Text(
         isLogin ? "Sign in with Google" : "Sign up with Google",
@@ -295,13 +302,41 @@ class _AuthScreenState extends State<AuthScreen> with TickerProviderStateMixin {
             style: AppFonts.heading.copyWith(fontSize: 26, color: Colors.white),
           ),
           const SizedBox(height: 20),
+          if (!isLogin) ...[
+            TextFormField(
+              controller: displayNameController,
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) {
+                  return 'Display Name is required';
+                }
+                if (value.trim().length < 3) {
+                  return 'Display Name must be at least 3 characters';
+                }
+                return null;
+              },
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(
+                labelText: 'Display Name',
+                labelStyle: TextStyle(color: Colors.white70),
+                enabledBorder: UnderlineInputBorder(
+                  borderSide: BorderSide(color: Colors.white24),
+                ),
+                focusedBorder: UnderlineInputBorder(
+                  borderSide: BorderSide(color: Colors.cyanAccent, width: 2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+          ],
           TextFormField(
             controller: emailController,
             validator: (value) {
               if (value == null || value.trim().isEmpty) {
                 return 'Email is required';
               }
-              if (!value.contains('@') || !value.contains('.')) {
+              // Stricter email regex
+              final emailRegex = RegExp(r"^[a-zA-Z0-9.a-zA-Z0-9.!#$%&'*+-/=?^_`{|}~]+@[a-zA-Z0-9]+\.[a-zA-Z]+");
+              if (!emailRegex.hasMatch(value)) {
                 return 'Enter a valid email';
               }
               return null;
@@ -343,6 +378,33 @@ class _AuthScreenState extends State<AuthScreen> with TickerProviderStateMixin {
               ),
             ),
           ),
+          if (!isLogin) ...[
+            const SizedBox(height: 20),
+            TextFormField(
+              controller: confirmPasswordController,
+              obscureText: true,
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) {
+                  return 'Confirm Password is required';
+                }
+                if (value != passwordController.text) {
+                  return 'Passwords do not match';
+                }
+                return null;
+              },
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(
+                labelText: 'Confirm Password',
+                labelStyle: TextStyle(color: Colors.white70),
+                enabledBorder: UnderlineInputBorder(
+                  borderSide: BorderSide(color: Colors.white24),
+                ),
+                focusedBorder: UnderlineInputBorder(
+                  borderSide: BorderSide(color: Colors.cyanAccent, width: 2),
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: 30),
           MouseRegion(
             cursor: SystemMouseCursors.click,

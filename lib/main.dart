@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart'; // Added for kIsWeb
+import 'package:flutter/foundation.dart'; 
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -19,29 +19,36 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'dart:async';
 
 void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-  await dotenv.load(fileName: ".env");
+  runZonedGuarded(() async {
+    WidgetsFlutterBinding.ensureInitialized();
+    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    
+    try {
+      await dotenv.load(fileName: ".env");
+    } catch (e) {
+    }
 
-  //FIXED LOGIC:
-  if (kIsWeb) {
-    // Only use these manual keys when running on a Browser
-    await Firebase.initializeApp(
-      options: FirebaseOptions(
-        apiKey: dotenv.env['FIREBASE_API_KEY'] ?? '',
-        authDomain: "optiai-6cd49.firebaseapp.com",
-        projectId: "optiai-6cd49",
-        storageBucket: "optiai-6cd49.appspot.com",
-        messagingSenderId: "576297972114",
-        appId: "1:576297972114:web:ccfc479a208f0f0869d14b",
-      ),
-    );
-  } else {
-    // For Android, it will automatically read your google-services.json file!
-    await Firebase.initializeApp();
-  }
+    try {
+      if (kIsWeb) {
+        await Firebase.initializeApp(
+          options: FirebaseOptions(
+            apiKey: dotenv.env['FIREBASE_API_KEY'] ?? '',
+            authDomain: "optiai-6cd49.firebaseapp.com",
+            projectId: "optiai-6cd49",
+            storageBucket: "optiai-6cd49.appspot.com",
+            messagingSenderId: "576297972114",
+            appId: "1:576297972114:web:ccfc479a208f0f0869d14b",
+          ),
+        );
+      } else {
+        await Firebase.initializeApp();
+      }
+    } catch (e) {
+    }
 
-  runApp(const OptiAIGlassesApp());
+    runApp(const OptiAIGlassesApp());
+  }, (error, stack) {
+  });
 }
 
 class OptiAIGlassesApp extends StatefulWidget {
@@ -90,7 +97,7 @@ class _OptiAIGlassesAppState extends State<OptiAIGlassesApp> {
           create: (_) => AiService(
             geminiApiKey: dotenv.env['GEMINI_API_KEY'] ?? '',
             esp32Url: Env.esp32Url(localEsp32Url: 'http://esp32cam.local/capture'),
-            modelApiUrl: 'http://127.0.0.1:8080',
+            modelApiUrl: 'https://optiai-backend.onrender.com/',
           ),
         ),
 

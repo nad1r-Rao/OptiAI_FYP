@@ -11,6 +11,7 @@ import 'dart:typed_data';
 import '../providers/chat_provider.dart';
 import '../providers/speech_provider.dart';
 import '../providers/auth_provider.dart';
+import '../providers/memory_provider.dart';
 import 'settings_screen.dart';
 import '../widgets/user_avatar.dart';
 import '../widgets/glasses_status.dart';
@@ -37,7 +38,26 @@ class _ChatHomeScreenState extends State<ChatHomeScreen>
 
     // Load chat history once after build
     Future.microtask(() {
-      // context.read<ChatProvider>().loadChatHistory();
+      context.read<MemoryProvider>().loadMemories();
+      context.read<ChatProvider>().loadChatHistory();
+
+      // Register TTS completion handler for continuous conversation
+      context.read<ChatProvider>().onTtsComplete = () {
+        final speech = context.read<SpeechProvider>();
+        if (speech.isConversationMode) {
+          // Small delay to ensure audio is clear
+          Future.delayed(const Duration(milliseconds: 500), () {
+            if (mounted && speech.isConversationMode) {
+               speech.startListening(
+                onResult: (text) {
+                  // Logic is handled in SpeechProvider/ChatProvider
+                },
+                chatProvider: context.read<ChatProvider>(),
+              );
+            }
+          });
+        }
+      };
     });
   }
 
@@ -87,7 +107,26 @@ class _ChatHomeScreenState extends State<ChatHomeScreen>
           ),
         ),
         title: Text('OptiAI Glasses', style: AppFonts.heading.copyWith(color: AppColors.neonBlue)),
+
         actions: [
+          // Conversation Mode Toggle
+          IconButton(
+            icon: Icon(
+              speechProvider.isConversationMode ? Icons.record_voice_over : Icons.voice_over_off,
+              color: speechProvider.isConversationMode ? AppColors.neonGreen : Colors.grey,
+            ),
+            onPressed: () {
+              speechProvider.toggleConversationMode();
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(speechProvider.isConversationMode 
+                    ? "Conversation Mode ON" 
+                    : "Conversation Mode OFF"),
+                  duration: const Duration(seconds: 1),
+                ),
+              );
+            },
+          ),
           Padding(
             padding: const EdgeInsets.only(right: 16.0),
             child: UserAvatar(

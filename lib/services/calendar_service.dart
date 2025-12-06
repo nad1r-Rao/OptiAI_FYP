@@ -18,7 +18,7 @@ class CalendarService {
       tz.setLocalLocation(tz.getLocation(timeZoneName));
     } catch (e) {
       // Fallback to UTC or default if timezone detection fails
-      print("Failed to get local timezone: $e");
+
     }
   }
 

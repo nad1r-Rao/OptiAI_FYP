@@ -14,7 +14,7 @@ class MemoryProvider extends ChangeNotifier {
   Future<void> loadMemories() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
-
+  
     final snapshot = await FirebaseFirestore.instance
         .collection('users')
         .doc(uid)

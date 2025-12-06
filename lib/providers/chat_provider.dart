@@ -18,6 +18,7 @@ class ChatProvider extends ChangeNotifier {
   final CalendarService calendarService;
   final ContactService contactService = ContactService();
   final FlutterTts _flutterTts = FlutterTts();
+  VoidCallback? onTtsComplete;
 
   final List<ChatMessage> _messages = [];
   bool _isThinking = false;
@@ -44,6 +45,12 @@ class ChatProvider extends ChangeNotifier {
     await _flutterTts.setLanguage("en-US");
     await _flutterTts.setPitch(1.0);
     await _flutterTts.setSpeechRate(0.5);
+    
+    _flutterTts.setCompletionHandler(() {
+      if (onTtsComplete != null) {
+        onTtsComplete!();
+      }
+    });
   }
 
   Future<void> setVoiceSpeed(double speed) async {
@@ -234,16 +241,19 @@ class ChatProvider extends ChangeNotifier {
 
   /// Send plain text message (routes through the model → text or image)
   Future<void> sendText(String text) async {
-    print("DEBUG: sendText called with: $text");
     if (text.trim().isEmpty) {
-      print("DEBUG: Text is empty");
       return;
     }
 
+    // Show user message immediately
+    final userMsg = ChatMessage(isUser: true, message: text);
+    _messages.add(userMsg);
+    notifyListeners();
+
     final uid = FirebaseAuth.instance.currentUser?.uid;
-    print("DEBUG: Current UID: $uid");
+    
     if (uid == null) {
-      print("DEBUG: User not logged in!");
+      await _addAiMessage("You are not logged in. Please log in to continue.", speak: true);
       return;
     }
 
@@ -251,41 +261,25 @@ class ChatProvider extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     final autoCapture = prefs.getBool('auto_capture') ?? true;
     final personality = prefs.getString('ai_personality') ?? 'Friendly';
-    print("DEBUG: Settings loaded. AutoCapture: $autoCapture, Personality: $personality");
-
-    // Show user message
-    final userMsg = ChatMessage(isUser: true, message: text);
-    _messages.add(userMsg);
-    notifyListeners();
-    print("DEBUG: User message added to local state");
     
     try {
       await _appendToFirestore(text: text, sender: 'user');
-      print("DEBUG: User message saved to Firestore");
     } catch (e) {
-      print("DEBUG: Failed to save to Firestore: $e");
     }
 
     // Model-driven flow
     _setThinking(true);
-    print("DEBUG: Thinking state set to true");
     try {
       // 1. Local Model Classification
       String? localPrediction;
       try {
-        print("DEBUG: Calling aiService.classify");
         localPrediction = await aiService.classify(text);
-        print("DEBUG: Local prediction: $localPrediction");
       } catch (e) {
-        print("DEBUG: Local classify failed: $e");
-        // Ignore local model errors
       }
 
       // 2. Gemini Router
-      print("DEBUG: Calling aiService.routeQuery");
       final queryType =
           await aiService.routeQuery(text, localContext: localPrediction);
-      print("DEBUG: Query routed to: $queryType");
 
       if (queryType == QueryType.realtime) {
         // --- REALTIME FLOW ---
@@ -395,14 +389,11 @@ class ChatProvider extends ChangeNotifier {
         
         // Use AI to extract the title cleanly
         String targetTitle = await aiService.extractCalendarDeletion(text);
-        
-        print("DEBUG: Target title for deletion (AI extracted): '$targetTitle'");
             
         if (targetTitle.isEmpty) {
            await _addAiMessage("I'm not sure which event to delete. Please specify the title.");
         } else {
            final result = await calendarService.deleteEvent(targetTitle);
-           print("DEBUG: Delete result: $result");
            await _addAiMessage(result);
            
            // Fallback: If not found, explain why
@@ -429,20 +420,15 @@ class ChatProvider extends ChangeNotifier {
 
       } else {
         // --- GENERAL CHAT FLOW ---
-        print("DEBUG: General chat flow");
         final response = await aiService.sendTextToGemini(
             text, memories: memoryProvider.memories, personality: personality);
-        print("DEBUG: Gemini response: $response");
         await _addAiMessage(response);
       }
 
     } catch (e, stack) {
-      print("DEBUG: Error in sendText: $e");
-      print("DEBUG: Stack trace: $stack");
       await _addAiMessage('Error: $e', speak: false);
     } finally {
       _setThinking(false);
-      print("DEBUG: Thinking state set to false");
     }
   }
 

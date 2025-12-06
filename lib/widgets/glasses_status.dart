@@ -15,42 +15,91 @@ class GlassesStatus extends StatefulWidget {
 
 class _GlassesStatusState extends State<GlassesStatus> {
   bool _isConnected = false;
-  Timer? _timer;
+  bool _isChecking = false;  // Prevent concurrent checks
+  DateTime? _lastCheckTime;  // For debouncing manual checks
+  
+  // Configuration
+  static const Duration _debounceInterval = Duration(seconds: 5); // Minimum time between manual checks
 
   @override
   void initState() {
     super.initState();
-    _checkConnection();
-    // Poll every 5 seconds
-    _timer = Timer.periodic(const Duration(minutes: 1), (_) => _checkConnection());
+    // Delay initial check slightly to let app initialize
+    Future.delayed(const Duration(seconds: 5), () {
+      if (mounted) _checkConnection();
+    });
+    // Automatic periodic polling removed as per user request
   }
 
   @override
   void dispose() {
-    _timer?.cancel();
     super.dispose();
   }
 
-  Future<void> _checkConnection() async {
-    final aiService = context.read<AiService>();
-    final connected = await aiService.checkEsp32Connection();
-    if (mounted && connected != _isConnected) {
-      setState(() {
-        _isConnected = connected;
-      });
+  Future<void> _checkConnection({bool manual = false}) async {
+    // Prevent concurrent checks
+    if (_isChecking) {
+      debugPrint('GlassesStatus: Check already in progress, skipping');
+      return;
+    }
+    
+    // Debounce manual checks (prevent spam clicking)
+    if (manual && _lastCheckTime != null) {
+      final timeSinceLastCheck = DateTime.now().difference(_lastCheckTime!);
+      if (timeSinceLastCheck < _debounceInterval) {
+        debugPrint('GlassesStatus: Debouncing manual check (${timeSinceLastCheck.inSeconds}s < ${_debounceInterval.inSeconds}s)');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("Please wait ${_debounceInterval.inSeconds - timeSinceLastCheck.inSeconds}s before checking again"),
+              duration: const Duration(seconds: 1),
+            ),
+          );
+        }
+        return;
+      }
+    }
+    
+    if (mounted) {
+      setState(() => _isChecking = true);
+    }
+    
+    _lastCheckTime = DateTime.now();
+    
+    try {
+      final aiService = context.read<AiService>();
+      final connected = await aiService.checkEsp32Connection();
+      
+      if (mounted && connected != _isConnected) {
+        setState(() {
+          _isConnected = connected;
+        });
+        debugPrint('GlassesStatus: Connection state changed to $connected');
+      }
+    } catch (e) {
+      debugPrint('GlassesStatus: Error checking connection - $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isChecking = false);
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final speechProvider = context.watch<SpeechProvider>(); // Watch for awake state
+    final speechProvider = context.watch<SpeechProvider>();
     final isAwake = speechProvider.isAwake;
 
     // Determine status text and color
     String statusText;
     Color statusColor;
+    IconData? statusIcon;
 
-    if (!_isConnected) {
+    if (_isChecking) {
+      statusText = 'Checking...';
+      statusColor = Colors.orange;
+      statusIcon = Icons.sync;
+    } else if (!_isConnected) {
       statusText = 'Camera Not Attached';
       statusColor = Colors.red;
     } else if (isAwake) {
@@ -62,12 +111,9 @@ class _GlassesStatusState extends State<GlassesStatus> {
     }
 
     return InkWell(
-      onTap: () {
-        // Manual retry on tap
-        _checkConnection();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Checking connection..."), duration: Duration(seconds: 1)),
-        );
+      onTap: _isChecking ? null : () {
+        // Manual retry on tap with debouncing
+        _checkConnection(manual: true);
       },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -89,12 +135,22 @@ class _GlassesStatusState extends State<GlassesStatus> {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Image.asset(
-              'assets/images/glasses.png',
-              width: 24,
-              height: 24,
-              color: statusColor,
-            ),
+            if (_isChecking)
+              SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation<Color>(statusColor),
+                ),
+              )
+            else
+              Image.asset(
+                'assets/images/glasses.png',
+                width: 24,
+                height: 24,
+                color: statusColor,
+              ),
             const SizedBox(width: 8),
             Text(
               statusText,
@@ -110,3 +166,4 @@ class _GlassesStatusState extends State<GlassesStatus> {
     );
   }
 }
+

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -287,23 +288,63 @@ Fact (concise, 3rd person if about user):
   }
 
   // --- ESP32 ---
+  // ESP32 configuration constants
+  static const int _esp32TimeoutSeconds = 10;  // Increased from 5s for slow ESP32 responses
+  static const int _esp32MaxRetries = 3;       // Retry attempts for unreliable connections
+  static const int _esp32RetryDelayMs = 500;   // Delay between retries (increases exponentially)
+
   Future<Uint8List?> captureImageFromESP32() async {
-    try {
-      final response = await http.get(Uri.parse(esp32Url)).timeout(const Duration(seconds: 5));
-      if (response.statusCode == 200) {
-        return response.bodyBytes;
+    for (int attempt = 1; attempt <= _esp32MaxRetries; attempt++) {
+      try {
+        final response = await http.get(
+          Uri.parse(esp32Url),
+          headers: {
+            'Connection': 'keep-alive',  // Reuse connection to avoid socket exhaustion
+            'Cache-Control': 'no-cache', // Always get fresh image
+          },
+        ).timeout(Duration(seconds: _esp32TimeoutSeconds));
+        
+        if (response.statusCode == 200) {
+          return response.bodyBytes;
+        }
+        
+        // Log non-200 responses for debugging
+        debugPrint('ESP32 capture attempt $attempt: HTTP ${response.statusCode}');
+        
+      } on TimeoutException {
+        debugPrint('ESP32 capture attempt $attempt: Timeout after ${_esp32TimeoutSeconds}s');
+      } on http.ClientException catch (e) {
+        debugPrint('ESP32 capture attempt $attempt: Network error - $e');
+      } catch (e) {
+        debugPrint('ESP32 capture attempt $attempt: Error - $e');
       }
-    } catch (e) {
-      // Ignore ESP32 errors
+      
+      // Wait before retry (exponential backoff: 500ms, 1000ms, 2000ms)
+      if (attempt < _esp32MaxRetries) {
+        await Future.delayed(Duration(milliseconds: _esp32RetryDelayMs * attempt));
+      }
     }
+    
+    debugPrint('ESP32 capture failed after $_esp32MaxRetries attempts');
     return null;
   }
 
   Future<bool> checkEsp32Connection() async {
     try {
-      final resp = await http.get(Uri.parse(esp32Url)).timeout(const Duration(seconds: 5));
+      // Use a shorter timeout for connection check (just ping, not capture)
+      final resp = await http.get(
+        Uri.parse(esp32Url),
+        headers: {'Connection': 'keep-alive'},
+      ).timeout(const Duration(seconds: 8));
       return resp.statusCode == 200;
-    } catch (_) {
+    } on TimeoutException {
+      debugPrint('ESP32 connection check: Timeout');
+      return false;
+    } on http.ClientException catch (e) {
+      debugPrint('ESP32 connection check: Network error - $e');
+      return false;
+    } catch (e) {
+      debugPrint('ESP32 connection check: Error - $e');
       return false;
     }
   }

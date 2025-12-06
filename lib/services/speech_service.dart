@@ -31,7 +31,7 @@ class SpeechService {
           androidWillPauseWhenDucked: true,
         ));
       } catch (e) {
-        debugPrint('Error configuring audio session: $e');
+
       }
     }
 
