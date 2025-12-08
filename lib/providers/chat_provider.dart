@@ -10,6 +10,7 @@ import '../models/conversation.dart';
 import '../services/ai_services.dart';
 import '../services/calendar_service.dart';
 import '../services/contact_service.dart';
+import '../services/whatsapp_service.dart';
 import 'memory_provider.dart';
 
 class ChatProvider extends ChangeNotifier {
@@ -17,6 +18,7 @@ class ChatProvider extends ChangeNotifier {
   final MemoryProvider memoryProvider;
   final CalendarService calendarService;
   final ContactService contactService = ContactService();
+  final WhatsAppService whatsAppService = WhatsAppService();
   final FlutterTts _flutterTts = FlutterTts();
   VoidCallback? onTtsComplete;
 
@@ -416,6 +418,30 @@ class ChatProvider extends ChangeNotifier {
         } else {
           final result = await contactService.findAndCallContact(name);
           await _addAiMessage(result);
+        }
+
+      } else if (queryType == QueryType.whatsapp_msg) {
+        // --- WHATSAPP MESSAGE FLOW ---
+        await _addAiMessage("Preparing WhatsApp message...", speak: false);
+        
+        final details = await aiService.extractWhatsAppDetails(text);
+        final contactName = details['contactName'] ?? '';
+        final message = details['message'] ?? '';
+        
+        if (contactName.isEmpty) {
+          await _addAiMessage("Who would you like to message on WhatsApp?");
+        } else if (message.isEmpty) {
+          await _addAiMessage("What message would you like to send to $contactName?");
+        } else {
+          // Find the contact's phone number
+          final phoneNumber = await contactService.findContactPhoneNumber(contactName);
+          
+          if (phoneNumber == null) {
+            await _addAiMessage("I couldn't find $contactName in your contacts.");
+          } else {
+            final result = await whatsAppService.sendMessage(phoneNumber, message);
+            await _addAiMessage(result);
+          }
         }
 
       } else {

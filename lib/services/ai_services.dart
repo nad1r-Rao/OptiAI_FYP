@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:google_generative_ai/google_generative_ai.dart';
+import 'gemini_fix.dart';
 import 'retrieval/live_retrieval.dart';
 import 'retrieval/serp_client.dart'; 
 
@@ -55,6 +56,7 @@ enum QueryType {
   calendar_write,
   calendar_delete,
   phone_call,
+  whatsapp_msg,
 }
 
 class AiService {
@@ -62,30 +64,28 @@ class AiService {
   final String esp32Url;
   final String modelApiUrl;
 
-  late final GenerativeModel _model;
-  late final GenerativeModel _visionModel;
-  late final GenerativeModel _routerModel;
+  late final GeminiQuickFix _model;
+  late final GeminiQuickFix _visionModel;
+  late final GeminiQuickFix _routerModel;
 
   AiService({
     required this.geminiApiKey,
     required this.esp32Url,
     required this.modelApiUrl,
   }) {
-    _model = GenerativeModel(
-      model: 'gemini-2.0-flash',
+    _model = GeminiQuickFix(
+      model: 'gemini-2.5-flash-lite',
       apiKey: geminiApiKey,
     );
-    _visionModel = GenerativeModel(
-      model: 'gemini-2.0-flash',
+    _visionModel = GeminiQuickFix(
+      model: 'gemini-2.5-flash-lite',
       apiKey: geminiApiKey,
     );
-    _routerModel = GenerativeModel(
-      model: 'gemini-2.0-flash',
+    _routerModel = GeminiQuickFix(
+      model: 'gemini-2.5-flash-lite',
       apiKey: geminiApiKey,
-      generationConfig: GenerationConfig(
-        temperature: 0.0,
-        maxOutputTokens: 10,
-      ),
+      temperature: 0.0,
+      maxOutputTokens: 10,
     );
   }
 
@@ -93,14 +93,15 @@ class AiService {
   Future<QueryType> routeQuery(String query, {String? localContext}) async {
     String prompt = """
 You are a router for smart glasses. Classify the user's query into one of these types:
-1. IMAGE: The user wants to capture/analyze an image (e.g., "What is this?", "Read this text", "Look at the view").
+1. IMAGE: The user wants to capture, see, look at, or analyze something visual (e.g., "What is this?", "Read this text", "Look at the view", "Take a picture", "Take a photo", "Check this out", "See this", "What do you see?", "Describe what's in front of me", "I'm seeing a beautiful scenery", "Analyze this").
 2. REALTIME: The user asks for live/changing info (e.g., "Weather?", "Stock price?", "Who won the game?", "Current time").
 3. MEMORY_STORE: The user explicitly asks you to remember a fact (e.g., "Remember that my keys are in the bowl", "Note that I like sushi").
 4. CALENDAR_READ: The user asks about their schedule (e.g., "What is my schedule?", "When is my next meeting?", "Do I have any events today?").
 5. CALENDAR_WRITE: The user wants to create/schedule a NEW event (e.g., "Schedule a meeting with Bob", "Remind me to call mom", "Add dinner to calendar").
 6. CALENDAR_DELETE: The user wants to REMOVE/CANCEL an existing event (e.g., "Delete the meeting with Bob", "Cancel my 2pm appointment", "Remove the lunch event", "Delete dinner with Mahnoor").
 7. PHONE_CALL: The user wants to make a phone call (e.g., "Call John", "Dial Mom", "Phone Alice").
-8. TEXT: General chat, knowledge, or logic (e.g., "Tell me a joke", "Summarize this", "Who is Einstein?").
+8. WHATSAPP_MSG: The user wants to send a WhatsApp message (e.g., "Send hi to John on WhatsApp", "WhatsApp Mom saying I'll be late", "Message Ali on WhatsApp").
+9. TEXT: General chat, knowledge, or logic (e.g., "Tell me a joke", "Summarize this", "Who is Einstein?").
 
 Query: "$query"
 """;
@@ -109,13 +110,16 @@ Query: "$query"
       prompt += "\nLocal Model Prediction: $localContext\n(Use this prediction to help you decide, but trust your own judgment if it seems wrong.)\n";
     }
 
-    prompt += '\nReply ONLY with one word: IMAGE, REALTIME, MEMORY_STORE, CALENDAR_READ, CALENDAR_WRITE, CALENDAR_DELETE, PHONE_CALL, or TEXT.';
+    prompt += '\nReply ONLY with one word: IMAGE, REALTIME, MEMORY_STORE, CALENDAR_READ, CALENDAR_WRITE, CALENDAR_DELETE, PHONE_CALL, WHATSAPP_MSG, or TEXT.';
 
+    debugPrint('ROUTER: Classifying query: "$query"');
+    
     for (int attempt = 0; attempt < 3; attempt++) {
       try {
         final content = [Content.text(prompt)];
         final response = await _routerModel.generateContent(content);
         final text = response.text?.trim().toUpperCase() ?? 'TEXT';
+        debugPrint('ROUTER: Query="$query" → Response="$text"');
 
         if (text.contains('IMAGE')) return QueryType.image;
         if (text.contains('REALTIME')) return QueryType.realtime;
@@ -124,10 +128,14 @@ Query: "$query"
         if (text.contains('CALENDAR_WRITE')) return QueryType.calendar_write;
         if (text.contains('CALENDAR_DELETE')) return QueryType.calendar_delete;
         if (text.contains('PHONE_CALL')) return QueryType.phone_call;
+        if (text.contains('WHATSAPP')) return QueryType.whatsapp_msg;
         
         return QueryType.text;
       } catch (e) {
-        return QueryType.text; // Fallback on non-retriable error
+        debugPrint('ROUTER ERROR (attempt ${attempt + 1}): $e');
+        if (attempt == 2) {
+          debugPrint('ROUTER: All attempts failed, falling back to TEXT');
+        }
       }
     }
     return QueryType.text; // Fallback after retries
@@ -196,6 +204,40 @@ If the user says "Call Mom", return "Mom".
       return response.text?.trim() ?? "";
     } catch (e) {
       return "";
+    }
+  }
+  
+//--- WHATSAPP MESSAGE EXTRACTION ---
+
+  Future<Map<String, String>> extractWhatsAppDetails(String text) async {
+    final prompt = """
+Extract the contact name and message from this WhatsApp request.
+User: "$text"
+
+Return JSON with:
+- contactName: The name of the person to message
+- message: The message to send
+
+Examples:
+- "Send hi to John on WhatsApp" → {"contactName": "John", "message": "hi"}
+- "WhatsApp Mom saying I'll be late" → {"contactName": "Mom", "message": "I'll be late"}
+- "Message Ali on WhatsApp hello" → {"contactName": "Ali", "message": "hello"}
+
+Return ONLY valid JSON, no explanation.
+""";
+
+    try {
+      final content = [Content.text(prompt)];
+      final response = await _model.generateContent(content);
+      final jsonStr = response.text?.replaceAll('```json', '').replaceAll('```', '').trim() ?? '{}';
+      final Map<String, dynamic> parsed = jsonDecode(jsonStr);
+      return {
+        'contactName': parsed['contactName']?.toString() ?? '',
+        'message': parsed['message']?.toString() ?? '',
+      };
+    } catch (e) {
+      debugPrint('extractWhatsAppDetails error: $e');
+      return {'contactName': '', 'message': ''};
     }
   }
 
@@ -299,8 +341,8 @@ Fact (concise, 3rd person if about user):
         final response = await http.get(
           Uri.parse(esp32Url),
           headers: {
-            'Connection': 'keep-alive',  // Reuse connection to avoid socket exhaustion
-            'Cache-Control': 'no-cache', // Always get fresh image
+            'Connection': 'close',        // Free ESP32 memory immediately after sending
+            'Cache-Control': 'no-cache',  // Always get fresh image
           },
         ).timeout(Duration(seconds: _esp32TimeoutSeconds));
         
@@ -331,11 +373,19 @@ Fact (concise, 3rd person if about user):
 
   Future<bool> checkEsp32Connection() async {
     try {
-      // Use a shorter timeout for connection check (just ping, not capture)
-      final resp = await http.get(
-        Uri.parse(esp32Url),
-        headers: {'Connection': 'keep-alive'},
-      ).timeout(const Duration(seconds: 8));
+      // Parse the original URL (e.g., http://192.168.1.5/capture)
+      final originalUri = Uri.parse(esp32Url);
+      
+      // Create a lightweight "ping" URL using just the root path
+      final statusUri = originalUri.replace(path: '/');
+      
+      // Use HEAD request - asks "are you there?" without downloading the body
+      // This prevents triggering full camera capture and is much lighter
+      final resp = await http.head(
+        statusUri,
+        headers: {'Connection': 'close'},  // Free socket immediately
+      ).timeout(const Duration(seconds: 5)); // 5s is enough for a simple ping
+      
       return resp.statusCode == 200;
     } on TimeoutException {
       debugPrint('ESP32 connection check: Timeout');

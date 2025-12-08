@@ -41,6 +41,7 @@ dependencies:
   flutter_dotenv: ^5.2.1      # Fixed: 6.0.0 doesn't exist yet, 5.2.1 is standard
   shared_preferences: ^2.3.2  # Updated
   http: ^1.2.2
+  url_launcher: ^6.2.4        # Added for WhatsApp deep links
   
   # --- Hardware & Permissions ---
   permission_handler: ^11.3.1 # Added: Essential for mic/camera on Android 13+
@@ -54,7 +55,7 @@ dependencies:
   flutter_phone_direct_caller: ^2.1.1 # Added for direct calling
 
   # --- AI & Speech (The New Stuff) ---
-  google_generative_ai: ^0.4.6
+  google_generative_ai: ^0.4.7  # Latest version
   speech_to_text: ^7.0.0      # Keeping your V7 (Requires new Firebase versions below)
   flutter_tts: ^4.0.2
   provider: ^6.1.2

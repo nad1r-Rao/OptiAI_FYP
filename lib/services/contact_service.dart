@@ -63,4 +63,34 @@ class ContactService {
       return "Failed to initiate call to ${contact.displayName}.";
     }
   }
+
+  /// Finds a contact by name and returns their phone number (or null if not found)
+  Future<String?> findContactPhoneNumber(String name) async {
+    if (!await requestPermission()) {
+      return null;
+    }
+
+    // Get all contacts with phone numbers
+    final contacts = await FlutterContacts.getContacts(withProperties: true);
+    
+    // Fuzzy search
+    final lowerName = name.toLowerCase();
+    final matches = contacts.where((c) => 
+      c.displayName.toLowerCase().contains(lowerName)
+    ).toList();
+
+    if (matches.isEmpty) {
+      return null;
+    }
+
+    // Pick the best match (first one)
+    final contact = matches.first;
+    
+    if (contact.phones.isEmpty) {
+      return null;
+    }
+
+    // Return the first phone number (cleaned)
+    return contact.phones.first.number.replaceAll(RegExp(r'[^\d+]'), '');
+  }
 }
