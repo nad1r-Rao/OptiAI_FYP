@@ -74,15 +74,15 @@ class AiService {
     required this.modelApiUrl,
   }) {
     _model = GeminiQuickFix(
-      model: 'gemini-2.5-flash-lite',
+      model: 'gemini-2.5-flash',
       apiKey: geminiApiKey,
     );
     _visionModel = GeminiQuickFix(
-      model: 'gemini-2.5-flash-lite',
+      model: 'gemini-2.5-flash',
       apiKey: geminiApiKey,
     );
     _routerModel = GeminiQuickFix(
-      model: 'gemini-2.5-flash-lite',
+      model: 'gemini-2.5-flash',
       apiKey: geminiApiKey,
       temperature: 0.0,
       maxOutputTokens: 10,
@@ -316,9 +316,15 @@ Fact (concise, 3rd person if about user):
   // --- VISION ---
   Future<String> sendTextWithImageToGemini(String text, Uint8List imageBytes) async {
     try {
+      // Add instruction to ensure natural language response
+      final prompt = '''You are OptiAI, a helpful assistant for smart glasses.
+Analyze this image and respond naturally in plain text.
+Do NOT output JSON, bounding boxes, or code blocks.
+User query: $text''';
+      
       final content = [
         Content.multi([
-          TextPart(text),
+          TextPart(prompt),
           DataPart('image/jpeg', imageBytes),
         ])
       ];
@@ -330,10 +336,10 @@ Fact (concise, 3rd person if about user):
   }
 
   // --- ESP32 ---
-  // ESP32 configuration constants
-  static const int _esp32TimeoutSeconds = 10;  // Increased from 5s for slow ESP32 responses
+  // ESP32 configuration constants (increased for mDNS resolution)
+  static const int _esp32TimeoutSeconds = 15;  // Extra time for mDNS (esp32cam.local) resolution
   static const int _esp32MaxRetries = 3;       // Retry attempts for unreliable connections
-  static const int _esp32RetryDelayMs = 500;   // Delay between retries (increases exponentially)
+  static const int _esp32RetryDelayMs = 1000;  // 1s between retries for mDNS warmup
 
   Future<Uint8List?> captureImageFromESP32() async {
     for (int attempt = 1; attempt <= _esp32MaxRetries; attempt++) {
@@ -373,20 +379,21 @@ Fact (concise, 3rd person if about user):
 
   Future<bool> checkEsp32Connection() async {
     try {
-      // Parse the original URL (e.g., http://192.168.1.5/capture)
+      // Parse the original URL (e.g., http://esp32cam.local/capture)
       final originalUri = Uri.parse(esp32Url);
       
-      // Create a lightweight "ping" URL using just the root path
+      // Create a lightweight URL using just the root path
+      // Root path typically returns HTML (much smaller than /capture which returns full image)
       final statusUri = originalUri.replace(path: '/');
       
-      // Use HEAD request - asks "are you there?" without downloading the body
-      // This prevents triggering full camera capture and is much lighter
-      final resp = await http.head(
+      // Use GET request - ESP32-CAM servers often don't respond to HEAD
+      final resp = await http.get(
         statusUri,
         headers: {'Connection': 'close'},  // Free socket immediately
-      ).timeout(const Duration(seconds: 5)); // 5s is enough for a simple ping
+      ).timeout(const Duration(seconds: 8)); // 8s for mDNS resolution + response
       
-      return resp.statusCode == 200;
+      // Any response (200, 404, etc) means ESP32 is reachable
+      return resp.statusCode >= 200 && resp.statusCode < 500;
     } on TimeoutException {
       debugPrint('ESP32 connection check: Timeout');
       return false;

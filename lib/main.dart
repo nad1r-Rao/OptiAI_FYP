@@ -96,7 +96,7 @@ class _OptiAIGlassesAppState extends State<OptiAIGlassesApp> {
         Provider<AiService>(
           create: (_) => AiService(
             geminiApiKey: dotenv.env['GEMINI_API_KEY'] ?? '',
-            esp32Url: Env.esp32Url(localEsp32Url: 'http://192.168.137.189/capture'),
+            esp32Url: Env.esp32Url(localEsp32Url: 'http://esp32cam.local/capture'),
             modelApiUrl: 'https://optiai-backend.onrender.com/',
           ),
         ),
